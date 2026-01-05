@@ -14,44 +14,56 @@ export async function findCrossLanguageReferences(
 ): Promise<vscode.Location[]> {
     const languageId = document.languageId
 
-    // Get the function name at cursor
-    const functionName = getFunctionNameAtPosition(document, position)
-    if (!functionName) {
+    // Get the symbol name at cursor
+    const symbolName = getFunctionNameAtPosition(document, position)
+    if (!symbolName) {
         return []
     }
 
-    // Find the declaration location
-    // This is safe because the global flag prevents our provider from being called again
-    const declarationLocation = await findDeclarationLocation(document, position, functionName)
+    // Find the declaration location and symbol kind
+    const declarationInfo = await findDeclarationLocation(document, position, symbolName)
 
-    if (!declarationLocation) {
+    if (!declarationInfo) {
         return []
     }
 
-    // Check if the function is exported (for strict accessibility)
-    const isExported = await isFunctionExported(
+    const { location: declarationLocation, kind: symbolKind } = declarationInfo
+
+    // Check if the symbol is exported (for strict accessibility)
+    const isExported = await isSymbolExported(
         declarationLocation.uri,
         declarationLocation.range.start,
-        functionName,
+        symbolName,
         languageId,
+        symbolKind,
     )
+
+    // For structs and interfaces, only process exported ones
+    if (
+        (symbolKind === vscode.SymbolKind.Struct || symbolKind === vscode.SymbolKind.Interface) &&
+        !isExported
+    ) {
+        return []
+    }
 
     // Find ONLY cross-language references (not current language)
     let crossLanguageReferences: vscode.Location[] = []
 
     if (languageId === "typescript" || languageId === "typescriptreact") {
         // From TypeScript, find Go references ONLY
-        crossLanguageReferences = await findGoReferencesForFunction(
+        crossLanguageReferences = await findGoReferences(
             declarationLocation.uri,
-            functionName,
+            symbolName,
             isExported,
+            symbolKind,
         )
     } else if (languageId === "go") {
         // From Go, find TypeScript references ONLY
-        crossLanguageReferences = await findTsReferencesForFunction(
+        crossLanguageReferences = await findTsReferences(
             declarationLocation.uri,
-            functionName,
+            symbolName,
             isExported,
+            symbolKind,
         )
     }
 
@@ -60,15 +72,20 @@ export async function findCrossLanguageReferences(
     return crossLanguageReferences
 }
 
+interface DeclarationInfo {
+    location: vscode.Location
+    kind: vscode.SymbolKind
+}
+
 /**
- * Find the function declaration location
+ * Find the symbol declaration location (function, struct, or interface)
  * Uses vscode.executeReferenceProvider which is safe due to global recursion guard
  */
 async function findDeclarationLocation(
     document: vscode.TextDocument,
     position: vscode.Position,
-    functionName: string,
-): Promise<vscode.Location | null> {
+    symbolName: string,
+): Promise<DeclarationInfo | null> {
     try {
         // Use reference provider to find all references (including declaration)
         const references = await vscode.commands.executeCommand<vscode.Location[]>(
@@ -92,20 +109,28 @@ async function findDeclarationLocation(
                 continue
             }
 
-            // Look for a top-level function symbol that contains this reference
+            // Look for a top-level symbol (function, struct, or interface)
             for (const symbol of symbols) {
                 if (
-                    symbol.kind === vscode.SymbolKind.Function &&
-                    symbol.name === functionName &&
+                    (symbol.kind === vscode.SymbolKind.Function ||
+                        symbol.kind === vscode.SymbolKind.Struct ||
+                        symbol.kind === vscode.SymbolKind.Interface) &&
+                    symbol.name === symbolName &&
                     symbol.range.contains(ref.range.start)
                 ) {
-                    return new vscode.Location(ref.uri, symbol.selectionRange.start)
+                    return {
+                        location: new vscode.Location(ref.uri, symbol.selectionRange.start),
+                        kind: symbol.kind,
+                    }
                 }
             }
         }
 
-        // If no declaration found, use the first reference
-        return references[0]
+        // If no declaration found, use the first reference (assume function)
+        return {
+            location: references[0],
+            kind: vscode.SymbolKind.Function,
+        }
     } catch (error) {
         console.error("Error finding declaration location:", error)
         return null
@@ -113,19 +138,20 @@ async function findDeclarationLocation(
 }
 
 /**
- * Check if a function is exported
+ * Check if a symbol is exported
  */
-async function isFunctionExported(
+async function isSymbolExported(
     fileUri: vscode.Uri,
     position: vscode.Position,
-    functionName: string,
+    symbolName: string,
     languageId: string,
+    symbolKind: vscode.SymbolKind,
 ): Promise<boolean> {
     if (languageId === "go") {
-        // In Go, exported functions start with uppercase letter
-        return functionName[0] === functionName[0].toUpperCase()
+        // In Go, exported symbols start with uppercase letter
+        return symbolName[0] === symbolName[0].toUpperCase()
     } else if (languageId === "typescript" || languageId === "typescriptreact") {
-        // In TypeScript, check if the function has 'export' keyword
+        // In TypeScript, check if the symbol has 'export' keyword
         const document = await vscode.workspace.openTextDocument(fileUri)
         const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
             "vscode.executeDocumentSymbolProvider",
@@ -136,14 +162,14 @@ async function isFunctionExported(
             return false
         }
 
-        // Find the function symbol
+        // Find the symbol
         for (const symbol of symbols) {
             if (
-                symbol.kind === vscode.SymbolKind.Function &&
-                symbol.name === functionName &&
+                symbol.kind === symbolKind &&
+                symbol.name === symbolName &&
                 symbol.range.contains(position)
             ) {
-                // Check if the line contains 'export' keyword before the function
+                // Check if the line contains 'export' keyword
                 const line = document.lineAt(symbol.range.start.line).text
                 return /^\s*export\s+/.test(line)
             }
@@ -154,12 +180,13 @@ async function isFunctionExported(
 }
 
 /**
- * Find Go references for a TypeScript function
+ * Find Go references for a TypeScript symbol
  */
-async function findGoReferencesForFunction(
+async function findGoReferences(
     tsFileUri: vscode.Uri,
-    functionName: string,
+    symbolName: string,
     isSourceExported: boolean,
+    symbolKind: vscode.SymbolKind,
 ): Promise<vscode.Location[]> {
     // Find Go files in the same directory
     const goFiles = await findGoFilesInSameDirectory(tsFileUri)
@@ -168,21 +195,22 @@ async function findGoReferencesForFunction(
     }
 
     // Try both original name and capitalized
-    const capitalizedName = capitalizeFirstLetter(functionName)
-    const searchNames = functionName === capitalizedName
-        ? [functionName]
-        : [capitalizedName, functionName]
+    const capitalizedName = capitalizeFirstLetter(symbolName)
+    const searchNames = symbolName === capitalizedName
+        ? [symbolName]
+        : [capitalizedName, symbolName]
 
-    return await findFunctionInGoFiles(goFiles, searchNames, isSourceExported)
+    return await findSymbolInGoFiles(goFiles, searchNames, isSourceExported, symbolKind)
 }
 
 /**
- * Find TypeScript references for a Go function
+ * Find TypeScript references for a Go symbol
  */
-async function findTsReferencesForFunction(
+async function findTsReferences(
     goFileUri: vscode.Uri,
-    functionName: string,
+    symbolName: string,
     isSourceExported: boolean,
+    symbolKind: vscode.SymbolKind,
 ): Promise<vscode.Location[]> {
     // Find TypeScript files in the same directory
     const tsFiles = await findTsFilesInSameDirectory(goFileUri)
@@ -191,12 +219,10 @@ async function findTsReferencesForFunction(
     }
 
     // Try both original name and lowercase first letter
-    const lowercasedName = lowercaseFirstLetter(functionName)
-    const searchNames = functionName === lowercasedName
-        ? [functionName]
-        : [lowercasedName, functionName]
+    const lowercasedName = lowercaseFirstLetter(symbolName)
+    const searchNames = symbolName === lowercasedName ? [symbolName] : [lowercasedName, symbolName]
 
-    return await findFunctionInTsFiles(tsFiles, searchNames, isSourceExported)
+    return await findSymbolInTsFiles(tsFiles, searchNames, isSourceExported, symbolKind)
 }
 
 /**
@@ -270,12 +296,13 @@ function isSymbolNested(
 }
 
 /**
- * Find function references in Go files
+ * Find symbol references in Go files (functions, structs)
  */
-async function findFunctionInGoFiles(
+async function findSymbolInGoFiles(
     goFiles: vscode.Uri[],
-    functionNames: string[],
+    symbolNames: string[],
     isSourceExported: boolean,
+    symbolKind: vscode.SymbolKind,
 ): Promise<vscode.Location[]> {
     const strictAccessibility = isStrictAccessibilityEnabled()
 
@@ -299,12 +326,28 @@ async function findFunctionInGoFiles(
             }
 
             for (const symbol of symbols) {
-                if (
-                    symbol.kind === vscode.SymbolKind.Function &&
-                    functionNames.includes(symbol.name) &&
-                    isTopLevelFunction(symbol, symbols)
-                ) {
+                // Match the same kind of symbol
+                let isMatch = false
+                if (symbolKind === vscode.SymbolKind.Function) {
+                    isMatch = symbol.kind === vscode.SymbolKind.Function &&
+                        symbolNames.includes(symbol.name) &&
+                        isTopLevelFunction(symbol, symbols)
+                } else if (symbolKind === vscode.SymbolKind.Interface) {
+                    // TS interface -> Go struct
+                    isMatch = symbol.kind === vscode.SymbolKind.Struct &&
+                        symbolNames.includes(symbol.name)
+                } else if (symbolKind === vscode.SymbolKind.Struct) {
+                    // Should not happen (Go to TS, struct already handled)
+                    isMatch = false
+                }
+
+                if (isMatch) {
                     const isGoExported = symbol.name[0] === symbol.name[0].toUpperCase()
+
+                    // For structs/interfaces, only match exported ones
+                    if (symbolKind === vscode.SymbolKind.Interface && !isGoExported) {
+                        continue
+                    }
 
                     // Check accessibility if strict mode is enabled
                     if (strictAccessibility && isSourceExported !== isGoExported) {
@@ -312,17 +355,14 @@ async function findFunctionInGoFiles(
                     }
 
                     // Calculate priority
-                    // 0 = accessibility match (best)
-                    // 1 = exact name match
-                    // 2 = any match (default)
-                    const exactName = symbol.name === functionNames[0] // First name is the original
+                    const exactName = symbol.name === symbolNames[0]
                     const sameAccessibility = isSourceExported === isGoExported
 
-                    let priority = 2 // Default: any match
+                    let priority = 2
                     if (sameAccessibility) {
-                        priority = 0 // Best: accessibility match
+                        priority = 0
                     } else if (exactName) {
-                        priority = 1 // Second: exact name match
+                        priority = 1
                     }
 
                     candidates.push({ symbol, fileUri, priority })
@@ -332,7 +372,6 @@ async function findFunctionInGoFiles(
             console.error(`Error processing Go file ${fileUri.fsPath}:`, error)
         }
     }
-
     // If no candidates, return empty
     if (candidates.length === 0) {
         return []
@@ -377,12 +416,13 @@ async function findFunctionInGoFiles(
 }
 
 /**
- * Find function references in TypeScript files
+ * Find symbol references in TypeScript files (functions, interfaces)
  */
-async function findFunctionInTsFiles(
+async function findSymbolInTsFiles(
     tsFiles: vscode.Uri[],
-    functionNames: string[],
+    symbolNames: string[],
     isSourceExported: boolean,
+    symbolKind: vscode.SymbolKind,
 ): Promise<vscode.Location[]> {
     const strictAccessibility = isStrictAccessibilityEnabled()
 
@@ -414,14 +454,30 @@ async function findFunctionInTsFiles(
             }
 
             for (const symbol of symbols) {
-                if (
-                    symbol.kind === vscode.SymbolKind.Function &&
-                    functionNames.includes(symbol.name) &&
-                    isTopLevelFunction(symbol, symbols)
-                ) {
-                    // Check if TypeScript function is exported
+                // Match the same kind of symbol
+                let isMatch = false
+                if (symbolKind === vscode.SymbolKind.Function) {
+                    isMatch = symbol.kind === vscode.SymbolKind.Function &&
+                        symbolNames.includes(symbol.name) &&
+                        isTopLevelFunction(symbol, symbols)
+                } else if (symbolKind === vscode.SymbolKind.Struct) {
+                    // Go struct -> TS interface
+                    isMatch = symbol.kind === vscode.SymbolKind.Interface &&
+                        symbolNames.includes(symbol.name)
+                } else if (symbolKind === vscode.SymbolKind.Interface) {
+                    // Should not happen (TS to Go, interface already handled)
+                    isMatch = false
+                }
+
+                if (isMatch) {
+                    // Check if TypeScript symbol is exported
                     const line = document.lineAt(symbol.range.start.line).text
                     const isTsExported = /^\s*export\s+/.test(line)
+
+                    // For structs/interfaces, only match exported ones
+                    if (symbolKind === vscode.SymbolKind.Struct && !isTsExported) {
+                        continue
+                    }
 
                     // Check accessibility if strict mode is enabled
                     if (strictAccessibility && isSourceExported !== isTsExported) {
@@ -429,17 +485,14 @@ async function findFunctionInTsFiles(
                     }
 
                     // Calculate priority
-                    // 0 = accessibility match (best)
-                    // 1 = exact name match
-                    // 2 = any match (default)
-                    const exactName = symbol.name === functionNames[0] // First name is the original
+                    const exactName = symbol.name === symbolNames[0]
                     const sameAccessibility = isSourceExported === isTsExported
 
-                    let priority = 2 // Default: any match
+                    let priority = 2
                     if (sameAccessibility) {
-                        priority = 0 // Best: accessibility match
+                        priority = 0
                     } else if (exactName) {
-                        priority = 1 // Second: exact name match
+                        priority = 1
                     }
 
                     candidates.push({ symbol, fileUri, priority })

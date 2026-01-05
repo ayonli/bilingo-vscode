@@ -1,27 +1,29 @@
 # Bilingo VSCode Extension
 
-Find function references between Go and TypeScript in bilingual projects (Bilingo = **Bilin**gual + **Go**).
+Find function and type references between Go and TypeScript in bilingual projects (Bilingo = **Bilin**gual + **Go**).
 
 ## Features
 
-- **Cross-Language Reference Finding**: Seamlessly find references between Go and TypeScript functions
+- **Cross-Language Reference Finding**: Seamlessly find references between Go and TypeScript functions and types
+- **Function Matching**: Go functions ↔ TypeScript functions
+- **Type Matching**: Go structs ↔ TypeScript interfaces (perfect for [tygo](https://github.com/gzuidhof/tygo)-generated code)
 - **Native Integration**: Works directly with VSCode's built-in "Find All References" feature
 - **Smart Name Matching**: Automatically handles case conversion (PascalCase ↔ camelCase)
-- **Accessibility Matching**: Optional strict mode to match exported/unexported functions
+- **Accessibility Matching**: Optional strict mode to match exported/unexported symbols
 
 ## Rules
 
-- **Same-Directory Scope**: Go and TS functions must be declared in the same directory
-- **Top-Level Functions Only**: Only match top-level functions, excludes struct/class methods and
-  nested functions
+- **Same-Directory Scope**: Go and TypeScript symbols must be declared in the same directory
+- **Top-Level Functions Only**: Only match top-level functions, excludes struct/class methods and nested functions
+- **Exported Types Only**: Only match exported Go structs (capitalized) and exported TypeScript interfaces
 
 ## Usage
 
 Simply use the native "Find All References" feature (right-click → "Find All References" or press
-`Shift+F12`) on any function name in Go or TypeScript files. The extension will automatically find
+`Shift+F12`) on any function or type name in Go or TypeScript files. The extension will automatically find
 references in both languages.
 
-### Example
+### Example: Function Matching
 
 When you trigger "Find All References" on a Go function:
 
@@ -41,7 +43,31 @@ export function getArticle(id: string) {
 }
 ```
 
-And display all their references in the References View.
+### Example: Type Matching
+
+When you trigger "Find All References" on a Go struct:
+
+```go
+// types/article.go
+type Article struct {
+    ID    string
+    Title string
+}
+```
+
+The extension will find the corresponding TypeScript interface in the same directory:
+
+```typescript
+// types/article.ts
+export interface Article {
+    ID: string
+    Title: string
+}
+```
+
+This is especially useful for projects using [tygo](https://github.com/gzuidhof/tygo) to generate TypeScript types from Go structs.
+
+All references will be displayed in the References View.
 
 ## Configuration
 
@@ -63,10 +89,10 @@ Enable or disable the extension in the current workspace.
 **Type:** `boolean`\
 **Default:** `false`
 
-When enabled, only matches functions with the same accessibility:
+When enabled, only matches symbols with the same accessibility:
 
-- Go **capitalized** functions ↔ TypeScript **export**ed functions
-- Go **non-capitalized** functions ↔ TypeScript **non-exported** functions
+- Go **capitalized** symbols ↔ TypeScript **export**ed symbols
+- Go **non-capitalized** functions ↔ TypeScript **non-exported** functions (Note: structs and interfaces are always exported)
 
 ```json
 {
@@ -76,28 +102,34 @@ When enabled, only matches functions with the same accessibility:
 
 #### Example with Strict Accessibility
 
-**Matches:**
+**Functions - Matches:**
 
 - `func GetArticle` (Go) ↔ `export function getArticle` (TS) ✅
 - `func getArticle` (Go) ↔ `function getArticle` (TS) ✅
 
-**Does NOT match:**
+**Functions - Does NOT match:**
 
 - `func GetArticle` (Go) ✗ `function getArticle` (TS)
 - `func getArticle` (Go) ✗ `export function getArticle` (TS)
 
+**Types - Always match exported only:**
+
+- `type Article struct` (Go) ↔ `export interface Article` (TS) ✅
+- `type article struct` (Go - not exported) ✗ Any TypeScript interface
+- Any Go struct ✗ `interface Article` (TS - not exported)
+
 ## Matching Priority
 
-When multiple candidate functions exist, the extension prioritizes matches in this order:
+When multiple candidate symbols exist, the extension prioritizes matches in this order:
 
 1. **Accessibility Match** (Highest Priority)
    - Same export/public visibility
 
 2. **Exact Name Match**
-   - Function name is identical (no case conversion needed)
+   - Symbol name is identical (no case conversion needed)
 
 3. **Any Match** (Lowest Priority)
-   - Function name matches after case conversion
+   - Symbol name matches after case conversion
 
 ## Requirements
 

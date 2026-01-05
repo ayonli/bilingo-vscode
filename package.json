@@ -1,7 +1,7 @@
 {
     "name": "bilingo-vscode",
     "displayName": "Bilingo VSCode Extension",
-    "description": "Find function references between Golang and TypeScript in bilingual projects.",
+    "description": "Find function and type references between Golang and TypeScript in bilingual projects.",
     "version": "0.1.0",
     "publisher": "ayonli",
     "author": "A-yon Lee <the@ayon.li>",
