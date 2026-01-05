@@ -1,0 +1,23 @@
+{
+    "compilerOptions": {
+        "module": "NodeNext",
+        "target": "ES2022",
+        "lib": [
+            "ES2022"
+        ],
+        "sourceMap": true,
+        "rootDir": "src",
+        "strict": true,
+        "noEmit": true,
+        "noUnusedLocals": false,
+        "noUnusedParameters": false,
+        "allowImportingTsExtensions": true
+    },
+    "include": [
+        "src/**/*"
+    ],
+    "exclude": [
+        "test.mts",
+        "config.yml"
+    ]
+}

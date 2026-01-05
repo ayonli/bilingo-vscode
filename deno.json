@@ -1,0 +1,30 @@
+{
+    "fmt": {
+        "lineWidth": 100,
+        "indentWidth": 4,
+        "singleQuote": false,
+        "semiColons": false,
+        "newLineKind": "lf",
+        "proseWrap": "preserve",
+        "useBraces": "always",
+        "spaceSurroundingProperties": true,
+        "singleBodyPosition": "sameLine",
+        "trailingCommas": "onlyMultiLine",
+        "exclude": [
+            "dist",
+            "public",
+            "node_modules"
+        ]
+    },
+    "lint": {
+        "exclude": [
+            "dist",
+            "node_modules"
+        ],
+        "rules": {
+            "tags": [
+                "recommended"
+            ]
+        }
+    }
+}

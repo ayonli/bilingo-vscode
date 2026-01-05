@@ -1,0 +1,90 @@
+{
+    "name": "bilingo-vscode",
+    "displayName": "Bilingo VSCode Extension",
+    "description": "Find function references between Golang and TypeScript in bilingual projects.",
+    "version": "0.1.0",
+    "publisher": "ayonli",
+    "author": "A-yon Lee <the@ayon.li>",
+    "icon": "icon.png",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/ayonli/bilingo-vscode"
+    },
+    "bugs": {
+        "url": "https://github.com/ayonli/bilingo-vscode/issues"
+    },
+    "homepage": "https://github.com/ayonli/bilingo-vscode#readme",
+    "keywords": [
+        "bilingo",
+        "go",
+        "golang",
+        "ts",
+        "typescript"
+    ],
+    "engines": {
+        "vscode": "^1.97.0"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "activationEvents": [
+        "onLanguage:typescript",
+        "onLanguage:typescriptreact",
+        "onLanguage:go"
+    ],
+    "main": "./dist/extension.js",
+    "contributes": {
+        "configuration": {
+            "title": "Bilingo VSCode Extension",
+            "properties": {
+                "bilingo-vscode.enable": {
+                    "type": "boolean",
+                    "description": "Enable Bilingo VSCode Extension in the current workspace.",
+                    "default": true
+                },
+                "bilingo-vscode.strictAccessibility": {
+                    "type": "boolean",
+                    "description": "Strict accessibility matching: Go exported functions (capitalized) only match TypeScript exported functions, and Go unexported functions (lowercase) only match TypeScript non-exported functions.",
+                    "default": false
+                }
+            }
+        }
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run build",
+        "compile": "npm run sanitize && deno run -A esbuild.ts",
+        "watch": "npm-run-all -p watch:*",
+        "watch:esbuild": "deno run -A esbuild.ts --watch",
+        "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+        "build": "npm run sanitize && deno run -A esbuild.ts --production",
+        "pack": "vsce package",
+        "publish": "vsce publish",
+        "compile-tests": "tsc -p . --outDir out",
+        "watch-tests": "tsc -p . -w --outDir out",
+        "pretest": "npm run compile-tests && npm run compile",
+        "check-types": "tsc --noEmit",
+        "lint": "deno lint --fix",
+        "fmt": "deno fmt",
+        "sanitize": "npm run lint && npm run fmt && npm run check-types",
+        "test": "vscode-test",
+        "test:unit": "echo 'Unit tests would run here - requires VS Code test environment'",
+        "test:skip": "echo 'Tests skipped - use npm run test for full VS Code integration tests'"
+    },
+    "devDependencies": {
+        "@types/mocha": "^10.0.10",
+        "@types/node": "22.x",
+        "@types/vscode": "~1.97.0",
+        "@vscode/test-cli": "^0.0.11",
+        "@vscode/test-electron": "^2.5.2",
+        "@vscode/vsce": "^3.6.2",
+        "esbuild": "^0.25.12",
+        "npm-run-all": "^4.1.5",
+        "typescript": "^5.9.3"
+    },
+    "dependencies": {
+        "@ayonli/jsext": "^1.9.0",
+        "@std/jsonc": "npm:@jsr/std__jsonc@^1.0.2",
+        "minimatch": "^10.1.1"
+    }
+}
