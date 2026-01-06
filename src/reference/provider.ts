@@ -1,6 +1,6 @@
 import * as vscode from "vscode"
-import { isEnabledInWorkspace } from "./config"
-import { findCrossLanguageReferences } from "./findCrossLanguageReferences"
+import { isEnabledInWorkspace } from "../config"
+import { findReferences } from "./finder"
 
 // Global flag to prevent recursive calls across all instances
 let isProcessingGlobal = false
@@ -38,7 +38,7 @@ export class BilingoReferenceProvider implements vscode.ReferenceProvider {
         isProcessingGlobal = true
         try {
             // Find cross-language references
-            const references = await findCrossLanguageReferences(
+            const references = await findReferences(
                 document,
                 position,
                 context,

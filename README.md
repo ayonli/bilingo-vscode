@@ -5,9 +5,11 @@ Find function and type references between Go and TypeScript in bilingual project
 ## Features
 
 - **Cross-Language Reference Finding**: Seamlessly find references between Go and TypeScript functions and types
-- **Function Matching**: Go functions ↔ TypeScript functions
+- **Cross-Language Implementation Finding**: Find corresponding declarations across languages
+  - Go functions ↔ TypeScript function declarations
+  - Go structs ↔ TypeScript interfaces (+ TypeScript implementations)
 - **Type Matching**: Go structs ↔ TypeScript interfaces (perfect for [tygo](https://github.com/gzuidhof/tygo)-generated code)
-- **Native Integration**: Works directly with VSCode's built-in "Find All References" feature
+- **Native Integration**: Works directly with VSCode's built-in "Find All References" (`Shift+F12`) and "Find All Implementations" (`Ctrl+F12`) features
 - **Smart Name Matching**: Automatically handles case conversion (PascalCase ↔ camelCase)
 - **Accessibility Matching**: Optional strict mode to match exported/unexported symbols
 
@@ -19,9 +21,17 @@ Find function and type references between Go and TypeScript in bilingual project
 
 ## Usage
 
+### Find All References
+
 Simply use the native "Find All References" feature (right-click → "Find All References" or press
 `Shift+F12`) on any function or type name in Go or TypeScript files. The extension will automatically find
 references in both languages.
+
+### Find All Implementations
+
+Use the native "Find All Implementations" feature (right-click → "Go to Implementations" or press
+`Ctrl+F12` / `Cmd+F12`) on functions, structs, or interfaces in Go or TypeScript files. The extension will
+automatically find corresponding declarations and implementations in both languages.
 
 ### Example: Function Matching
 
@@ -42,6 +52,8 @@ export function getArticle(id: string) {
     // ...
 }
 ```
+
+Along with all locations where the function is used.
 
 ### Example: Type Matching
 
@@ -65,9 +77,57 @@ export interface Article {
 }
 ```
 
+Along with all locations where the interface is used.
+
 This is especially useful for projects using [tygo](https://github.com/gzuidhof/tygo) to generate TypeScript types from Go structs.
 
 All references will be displayed in the References View.
+
+### Example: Go Struct → TypeScript Interface → Implementations
+
+When you trigger "Find All Implementations" on a Go struct:
+
+```go
+// types/user.go
+type User struct {  // ← Trigger here
+    ID   string
+    Name string
+}
+```
+
+```typescript
+// types/user.ts
+export interface User { // ← Found: TS interface
+    id: string
+    name: string
+}
+
+// somewhere-else.ts
+export const user: User = { // ← Found: TS implementations
+    id: "johndoe",
+    name: "John Doe",
+}
+```
+
+### Example: Function Implementations
+
+When you trigger "Find All Implementations" on a function:
+
+```typescript
+// api/article.ts
+export function getArticle(id: string): Article { // ← Trigger here
+    // ...
+}
+```
+
+```go
+// api/article.go
+func GetArticle(id string) Article {  // ← Found
+    // ...
+}
+```
+
+And many more.
 
 ## Configuration
 
@@ -117,19 +177,6 @@ When enabled, only matches symbols with the same accessibility:
 - `type Article struct` (Go) ↔ `export interface Article` (TS) ✅
 - `type article struct` (Go - not exported) ✗ Any TypeScript interface
 - Any Go struct ✗ `interface Article` (TS - not exported)
-
-## Matching Priority
-
-When multiple candidate symbols exist, the extension prioritizes matches in this order:
-
-1. **Accessibility Match** (Highest Priority)
-   - Same export/public visibility
-
-2. **Exact Name Match**
-   - Symbol name is identical (no case conversion needed)
-
-3. **Any Match** (Lowest Priority)
-   - Symbol name matches after case conversion
 
 ## Requirements
 
