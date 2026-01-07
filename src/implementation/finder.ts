@@ -14,8 +14,8 @@ import {
 } from "../utils"
 
 /**
- * Find cross-language implementations (declarations) for TypeScript and Go
- * Returns the declaration location of the corresponding symbol in the OTHER language
+ * Find cross-language implementations (declarations) for TypeScript and Go.
+ * Returns the declaration location of the corresponding symbol in the OTHER language.
  * - Go function → TypeScript function declaration
  * - TypeScript function → Go function declaration
  * - Go struct → TypeScript interface declaration
@@ -130,7 +130,7 @@ export async function findImplementations(
 }
 
 /**
- * Find Go declaration for a TypeScript symbol
+ * Find Go declaration for a TypeScript symbol.
  */
 async function findGoDeclaration(
     tsFileUri: vscode.Uri,
@@ -154,7 +154,7 @@ async function findGoDeclaration(
 }
 
 /**
- * Find TypeScript declaration for a Go symbol
+ * Find TypeScript declaration for a Go symbol.
  */
 async function findTsDeclaration(
     goFileUri: vscode.Uri,
@@ -176,8 +176,8 @@ async function findTsDeclaration(
 }
 
 /**
- * Find symbol declaration in Go files (functions, structs)
- * Returns only the declaration location, not all references
+ * Find symbol declaration in Go files (functions, structs).
+ * Returns only the declaration location, not all references.
  */
 async function findSymbolDeclarationInGoFiles(
     goFiles: vscode.Uri[],
@@ -211,8 +211,8 @@ async function findSymbolDeclarationInGoFiles(
 }
 
 /**
- * Find symbol declaration in TypeScript files (functions, interfaces)
- * Returns only the declaration location, not all references
+ * Find symbol declaration in TypeScript files (functions, interfaces).
+ * Returns only the declaration location, not all references.
  */
 async function findSymbolDeclarationInTsFiles(
     tsFiles: vscode.Uri[],

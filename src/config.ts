@@ -1,7 +1,7 @@
 import * as vscode from "vscode"
 
 /**
- * Check if Bilingo is enabled for the current workspace
+ * Check if Bilingo is enabled for the current workspace.
  */
 export function isEnabledInWorkspace(): boolean {
     const config = vscode.workspace.getConfiguration("bilingo-vscode")
@@ -10,7 +10,7 @@ export function isEnabledInWorkspace(): boolean {
 }
 
 /**
- * Check if strict accessibility matching is enabled
+ * Check if strict accessibility matching is enabled.
  */
 export function isStrictAccessibilityEnabled(): boolean {
     const config = vscode.workspace.getConfiguration("bilingo-vscode")
@@ -19,7 +19,7 @@ export function isStrictAccessibilityEnabled(): boolean {
 }
 
 /**
- * Get all workspace folders
+ * Get all workspace folders.
  */
 export function getWorkspaceFolders(): readonly vscode.WorkspaceFolder[] {
     const workspaceFolders = vscode.workspace.workspaceFolders

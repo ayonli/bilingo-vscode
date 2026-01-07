@@ -6,7 +6,7 @@ import { findReferences } from "./finder"
 let isProcessingGlobal = false
 
 /**
- * Reference provider for cross-language references
+ * Reference provider for cross-language references.
  */
 export class BilingoReferenceProvider implements vscode.ReferenceProvider {
     async provideReferences(

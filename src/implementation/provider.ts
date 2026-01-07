@@ -7,7 +7,7 @@ import { findImplementations } from "./finder"
 let isProcessingGlobal = false
 
 /**
- * Implementation provider for cross-language implementations
+ * Implementation provider for cross-language implementations.
  */
 export class BilingoImplementationProvider implements vscode.ImplementationProvider {
     async provideImplementation(

@@ -2,10 +2,10 @@ import * as vscode from "vscode"
 import * as path from "node:path"
 
 /**
- * Get the function name at the given position
+ * Get the function name at the given position.
  * This can be either:
- * 1. A function being called (e.g., cursor on "getArticle" in "getArticle()")
- * 2. A function declaration (e.g., cursor on function name in "function getArticle()")
+ * 1. A function being called (e.g., cursor on "getArticle" in "getArticle()").
+ * 2. A function declaration (e.g., cursor on function name in "function getArticle()").
  */
 export function getFunctionNameAtPosition(
     document: vscode.TextDocument,
@@ -26,7 +26,7 @@ export function getFunctionNameAtPosition(
 }
 
 /**
- * Extract function name from text at position (fallback method)
+ * Extract function name from text at position (fallback method).
  */
 function extractFunctionNameFromText(
     document: vscode.TextDocument,
@@ -67,7 +67,7 @@ function extractFunctionNameFromText(
 }
 
 /**
- * Capitalize the first letter of a string
+ * Capitalize the first letter of a string.
  */
 export function capitalizeFirstLetter(str: string): string {
     if (!str) { return str }
@@ -75,7 +75,7 @@ export function capitalizeFirstLetter(str: string): string {
 }
 
 /**
- * Lowercase the first letter of a string
+ * Lowercase the first letter of a string.
  */
 export function lowercaseFirstLetter(str: string): string {
     if (!str) { return str }
@@ -83,7 +83,7 @@ export function lowercaseFirstLetter(str: string): string {
 }
 
 /**
- * Find all Go files in the same directory as the given file
+ * Find all Go files in the same directory as the given file.
  */
 export async function findGoFilesInSameDirectory(fileUri: vscode.Uri): Promise<vscode.Uri[]> {
     const dirPath = path.dirname(fileUri.fsPath)
@@ -95,7 +95,7 @@ export async function findGoFilesInSameDirectory(fileUri: vscode.Uri): Promise<v
 }
 
 /**
- * Find all TypeScript files in the same directory as the given file
+ * Find all TypeScript files in the same directory as the given file.
  */
 export async function findTsFilesInSameDirectory(fileUri: vscode.Uri): Promise<vscode.Uri[]> {
     const dirPath = path.dirname(fileUri.fsPath)
@@ -107,7 +107,7 @@ export async function findTsFilesInSameDirectory(fileUri: vscode.Uri): Promise<v
 }
 
 /**
- * Check if a symbol is exported
+ * Check if a symbol is exported.
  */
 export async function isSymbolExported(
     fileUri: vscode.Uri,
@@ -156,8 +156,8 @@ export interface DeclarationInfo {
 }
 
 /**
- * Recursively find a symbol (function/struct/interface) whose selectionRange contains the position
- * This finds the declaration, not usages
+ * Recursively find a symbol (function/struct/interface) whose selectionRange contains the position.
+ * This finds the declaration, not usages.
  */
 function findSymbolAtLocation(
     symbols: vscode.DocumentSymbol[],
@@ -189,8 +189,8 @@ function findSymbolAtLocation(
 
 /**
  * Find the symbol declaration location using reference provider
- * (for functions, structs, or interfaces)
- * Uses vscode.executeReferenceProvider which is safe due to global recursion guard
+ * (for functions, structs, or interfaces).
+ * Uses vscode.executeReferenceProvider which is safe due to global recursion guard.
  */
 export async function findDeclarationLocationViaReferences(
     document: vscode.TextDocument,
@@ -244,7 +244,7 @@ export async function findDeclarationLocationViaReferences(
 
 /**
  * Find the symbol declaration location using definition provider
- * (for interfaces primarily)
+ * (for interfaces primarily).
  */
 export async function findDeclarationLocationViaDefinition(
     document: vscode.TextDocument,
@@ -299,7 +299,7 @@ export async function findDeclarationLocationViaDefinition(
 }
 
 /**
- * Symbol match candidate with score
+ * Symbol match candidate with score.
  */
 export interface SymbolCandidate {
     symbol: vscode.DocumentSymbol
@@ -308,8 +308,8 @@ export interface SymbolCandidate {
 }
 
 /**
- * Calculate match score for a symbol candidate
- * Higher score is better: 3 = accessibility + exact name (best), 2 = accessibility match, 1 = exact name match, 0 = any match
+ * Calculate match score for a symbol candidate.
+ * Higher score is better: 3 = accessibility + exact name (best), 2 = accessibility match, 1 = exact name match, 0 = any match.
  */
 function calculateMatchScore(
     symbolName: string,
@@ -332,8 +332,8 @@ function calculateMatchScore(
 }
 
 /**
- * Find matching symbols in Go files (functions, structs)
- * Returns candidates with score for further processing
+ * Find matching symbols in Go files (functions, structs).
+ * Returns candidates with score for further processing.
  */
 export async function findMatchingSymbolsInGoFiles(
     goFiles: vscode.Uri[],
@@ -405,8 +405,8 @@ export async function findMatchingSymbolsInGoFiles(
 }
 
 /**
- * Find matching symbols in TypeScript files (functions, interfaces)
- * Returns candidates with score for further processing
+ * Find matching symbols in TypeScript files (functions, interfaces).
+ * Returns candidates with score for further processing.
  */
 export async function findMatchingSymbolsInTsFiles(
     tsFiles: vscode.Uri[],
@@ -487,7 +487,7 @@ export async function findMatchingSymbolsInTsFiles(
 }
 
 /**
- * Check if a symbol is a top-level function
+ * Check if a symbol is a top-level function.
  */
 export function isTopLevelFunction(
     symbol: vscode.DocumentSymbol,
@@ -521,7 +521,7 @@ export function isTopLevelFunction(
 }
 
 /**
- * Check if a symbol is nested inside another symbol
+ * Check if a symbol is nested inside another symbol.
  */
 export function isSymbolNested(
     symbol: vscode.DocumentSymbol,
@@ -531,7 +531,27 @@ export function isSymbolNested(
 }
 
 /**
- * Field or property information
+ * Enum constant information.
+ */
+export interface EnumConstInfo {
+    name: string // Constant name
+    constSymbol: vscode.DocumentSymbol // The constant symbol itself
+    fileUri: vscode.Uri
+    isExported: boolean // Whether the constant is exported
+}
+
+/**
+ * Enum type information.
+ */
+export interface EnumTypeInfo {
+    name: string // Type name
+    typeSymbol: vscode.DocumentSymbol // The type symbol itself
+    fileUri: vscode.Uri
+    isExported: boolean // Whether the type is exported
+}
+
+/**
+ * Field or property information.
  */
 export interface FieldInfo {
     name: string // Field/property name
@@ -542,9 +562,698 @@ export interface FieldInfo {
 }
 
 /**
- * Get the field or property at the given position
- * Returns field info if cursor is on a struct field or interface property
- * Works both at definition site and usage site
+ * Get the constant at the given position.
+ * Returns constant info if cursor is on a constant (Go const with uppercase first letter, or TS export const with uppercase first letter).
+ * Works both at definition site and usage site.
+ */
+export async function getEnumConstInfoAtPosition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+): Promise<EnumConstInfo | null> {
+    const languageId = document.languageId
+
+    // Get document symbols
+    const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+        "vscode.executeDocumentSymbolProvider",
+        document.uri,
+    )
+
+    if (!symbols) {
+        return null
+    }
+
+    // First, try to find constant at definition position
+    let constInfo: EnumConstInfo | null = null
+
+    if (languageId === "go") {
+        constInfo = findGoEnumConstAtPosition(document, position, symbols)
+    } else if (languageId === "typescript" || languageId === "typescriptreact") {
+        constInfo = findTsEnumConstAtPosition(document, position, symbols)
+    }
+
+    // If found at definition, return it
+    if (constInfo) {
+        return constInfo
+    }
+
+    // Otherwise, try to find constant at usage position
+    return await findEnumConstAtUsagePosition(document, position)
+}
+
+/**
+ * Get the enum type at the given position.
+ * Returns type info if cursor is on an enum type (Go type alias or TS export type).
+ * Works both at definition site and usage site.
+ */
+export async function getEnumTypeInfoAtPosition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+): Promise<EnumTypeInfo | null> {
+    const languageId = document.languageId
+
+    // Get document symbols
+    const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+        "vscode.executeDocumentSymbolProvider",
+        document.uri,
+    )
+
+    if (!symbols) {
+        return null
+    }
+
+    // Try to find type at definition position
+    let typeInfo: EnumTypeInfo | null = null
+
+    if (languageId === "go") {
+        typeInfo = findGoEnumTypeAtPosition(document, position, symbols)
+    } else if (languageId === "typescript" || languageId === "typescriptreact") {
+        typeInfo = findTsEnumTypeAtPosition(document, position, symbols)
+    }
+
+    // If found at definition, return it
+    if (typeInfo) {
+        return typeInfo
+    }
+
+    // Otherwise, try to find type at usage position
+    const usageTypeInfo = await findEnumTypeAtUsagePosition(document, position)
+    return usageTypeInfo
+}
+
+/**
+ * Find constant at usage position.
+ * Uses definition provider to locate the constant definition.
+ */
+async function findEnumConstAtUsagePosition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+): Promise<EnumConstInfo | null> {
+    try {
+        // Get the word at cursor (should be the constant name)
+        const wordRange = document.getWordRangeAtPosition(position)
+        if (!wordRange) {
+            return null
+        }
+
+        const word = document.getText(wordRange)
+
+        // Check if the word starts with uppercase (required for constants)
+        if (!word || word[0] !== word[0].toUpperCase()) {
+            return null
+        }
+
+        // Check if the word has at least 2 uppercase letters
+        if (!hasAtLeastTwoUppercaseLetters(word)) {
+            return null
+        }
+
+        // Use definition provider to find the constant definition
+        const definitions = await vscode.commands.executeCommand<
+            (vscode.Location | vscode.LocationLink)[]
+        >(
+            "vscode.executeDefinitionProvider",
+            document.uri,
+            position,
+        )
+
+        if (!definitions || definitions.length === 0) {
+            return null
+        }
+
+        // Get the first definition
+        const definition = definitions[0]
+        let defUri: vscode.Uri
+        let defPosition: vscode.Position
+
+        if ("targetUri" in definition) {
+            // LocationLink
+            defUri = definition.targetUri
+            defPosition = definition.targetRange.start
+        } else {
+            // Location
+            defUri = definition.uri
+            defPosition = definition.range.start
+        }
+
+        // Open the definition document
+        const defDocument = await vscode.workspace.openTextDocument(defUri)
+        const defLanguageId = defDocument.languageId
+
+        // Get symbols from the definition document
+        const defSymbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+            "vscode.executeDocumentSymbolProvider",
+            defUri,
+        )
+
+        if (!defSymbols) {
+            return null
+        }
+
+        // Find the constant info at the definition position
+        if (defLanguageId === "go") {
+            return findGoEnumConstByNameAndLine(
+                defDocument,
+                word,
+                defPosition.line,
+                defSymbols,
+            )
+        } else if (defLanguageId === "typescript" || defLanguageId === "typescriptreact") {
+            return findTsEnumConstByNameAndLine(
+                defDocument,
+                word,
+                defPosition.line,
+                defSymbols,
+            )
+        }
+    } catch (error) {
+        console.error("Error finding constant at usage position:", error)
+    }
+
+    return null
+}
+
+/**
+ * Check if a constant name has at least 2 uppercase letters.
+ */
+function hasAtLeastTwoUppercaseLetters(name: string): boolean {
+    const uppercaseCount = (name.match(/[A-Z]/g) || []).length
+    return uppercaseCount >= 2
+}
+
+/**
+ * Check if a line contains a literal value (string, number, or boolean).
+ */
+function hasLiteralValue(line: string): boolean {
+    const hasStringLiteral = /"[^"]*"/.test(line) || /'[^']*'/.test(line) || /`[^`]*`/.test(line)
+    const hasNumberLiteral = /=\s*-?\d+\b/.test(line)
+    const hasBooleanLiteral = /=\s*(true|false)\b/.test(line)
+    return hasStringLiteral || hasNumberLiteral || hasBooleanLiteral
+}
+
+/**
+ * Check if a line contains a literal type annotation (string, number, or boolean).
+ */
+function hasLiteralType(line: string): boolean {
+    return /:\s*(["'`])[^"'`]*\1|:\s*-?\d+\b|:\s*(true|false)\b/.test(line)
+}
+
+/**
+ * Check if the symbol is a Go enum constant.
+ */
+export function isGoEnumConst(
+    document: vscode.TextDocument,
+    symbol: vscode.DocumentSymbol,
+): boolean {
+    try {
+        // Get the line where the constant is declared
+        const line = document.lineAt(symbol.range.start.line).text
+        const constName = symbol.name
+
+        // For enum constants, we require explicit type annotation
+        // Pattern: ConstName TypeName = value
+        // `const` keyword is optional since the constant may be part of a const block
+        const constMatch = line.match(/\s+(\w+)\s+(\w+)\s*=/)
+        if (!constMatch) {
+            // No explicit type annotation - not an enum constant
+            return false
+        }
+
+        const typeName = constMatch[2]
+        if (
+            !/^[A-Z]/.test(constName) || // Const name must be capitalized
+            !/^[A-Z]/.test(typeName) || // Type name must be capitalized
+            !constName.startsWith(typeName) || // Const name must start with type name
+            !hasAtLeastTwoUppercaseLetters(constName) || // Const name must have at least 2 uppercase letters
+            !hasLiteralValue(line) // Value must be a literal
+        ) {
+            return false
+        }
+
+        return true
+    } catch (error) {
+        console.error("Error checking Go enum constant type:", error)
+        return false
+    }
+}
+
+/**
+ * Check if TypeScript enum constant has valid type (string or number literal).
+ */
+export function isTsEnumConst(
+    document: vscode.TextDocument,
+    symbol: vscode.DocumentSymbol,
+): boolean {
+    try {
+        // Get the line where the constant is declared
+        const line = document.lineAt(symbol.range.start.line).text
+        const constName = symbol.name
+
+        if (
+            !/^\s*export\s+const\s+/.test(line) || // Const must be exported
+            !/^[A-Z]/.test(constName) || // Const name must be capitalized
+            !hasAtLeastTwoUppercaseLetters(constName) || // Const name must have at least 2 uppercase letters
+            (!hasLiteralValue(line) && !hasLiteralType(line)) // Value or type must be a literal
+        ) {
+            return false
+        }
+
+        return true
+    } catch (error) {
+        console.error("Error checking TS enum constant type:", error)
+        return false
+    }
+}
+
+/**
+ * Find Go constant at position.
+ * Only matches constants with uppercase first letter (exported).
+ */
+function findGoEnumConstAtPosition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    symbols: vscode.DocumentSymbol[],
+): EnumConstInfo | null {
+    for (const symbol of symbols) {
+        if (symbol.kind === vscode.SymbolKind.Constant) {
+            // Check if position is within the constant's range
+            if (
+                symbol.selectionRange.contains(position) ||
+                symbol.range.contains(position)
+            ) {
+                // Check if the constant is a enum constant
+                if (!isGoEnumConst(document, symbol)) {
+                    continue
+                }
+
+                return {
+                    name: symbol.name,
+                    constSymbol: symbol,
+                    fileUri: document.uri,
+                    isExported: true, // Go constants with uppercase are exported
+                }
+            }
+        }
+    }
+
+    return null
+}
+
+/**
+ * Find Go constant by name and line number.
+ * Used when definition provider returns a position that's not exactly on the symbol.
+ */
+function findGoEnumConstByNameAndLine(
+    document: vscode.TextDocument,
+    constName: string,
+    line: number,
+    symbols: vscode.DocumentSymbol[],
+): EnumConstInfo | null {
+    for (const symbol of symbols) {
+        if (
+            symbol.kind === vscode.SymbolKind.Constant &&
+            symbol.name === constName &&
+            symbol.range.start.line === line
+        ) {
+            // Check if the constant is a enum constant
+            if (!isGoEnumConst(document, symbol)) {
+                continue
+            }
+
+            return {
+                name: symbol.name,
+                constSymbol: symbol,
+                fileUri: document.uri,
+                isExported: true,
+            }
+        }
+    }
+
+    return null
+}
+
+/**
+ * Find TypeScript constant at position.
+ * Only matches export const with uppercase first letter.
+ */
+function findTsEnumConstAtPosition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    symbols: vscode.DocumentSymbol[],
+): EnumConstInfo | null {
+    for (const symbol of symbols) {
+        if (
+            symbol.kind === vscode.SymbolKind.Constant ||
+            symbol.kind === vscode.SymbolKind.Variable
+        ) {
+            // Check if position is within the constant's range
+            if (
+                symbol.selectionRange.contains(position) ||
+                symbol.range.contains(position)
+            ) {
+                // Check if the constant has a valid type
+                if (!isTsEnumConst(document, symbol)) {
+                    continue
+                }
+
+                return {
+                    name: symbol.name,
+                    constSymbol: symbol,
+                    fileUri: document.uri,
+                    isExported: true,
+                }
+            }
+        }
+    }
+
+    return null
+}
+
+/**
+ * Find TypeScript constant by name and line number.
+ * Used when definition provider returns a position that's not exactly on the symbol.
+ */
+function findTsEnumConstByNameAndLine(
+    document: vscode.TextDocument,
+    constName: string,
+    line: number,
+    symbols: vscode.DocumentSymbol[],
+): EnumConstInfo | null {
+    for (const symbol of symbols) {
+        if (
+            (symbol.kind === vscode.SymbolKind.Constant ||
+                symbol.kind === vscode.SymbolKind.Variable) &&
+            symbol.name === constName &&
+            symbol.range.start.line === line
+        ) {
+            // Check if the constant has a valid type
+            if (!isTsEnumConst(document, symbol)) {
+                continue
+            }
+
+            return {
+                name: symbol.name,
+                constSymbol: symbol,
+                fileUri: document.uri,
+                isExported: true,
+            }
+        }
+    }
+
+    return null
+}
+
+/**
+ * Find Go enum type at position.
+ */
+function findGoEnumTypeAtPosition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    symbols: vscode.DocumentSymbol[],
+): EnumTypeInfo | null {
+    for (const symbol of symbols) {
+        if (
+            symbol.kind === vscode.SymbolKind.Class || symbol.kind === vscode.SymbolKind.Interface
+        ) {
+            // Check if position is within the type's range
+            if (
+                symbol.selectionRange.contains(position) ||
+                symbol.range.contains(position)
+            ) {
+                // Verify it's a type alias (type Status = string/int/bool/etc)
+                const line = document.lineAt(symbol.range.start.line).text
+
+                if (
+                    /type\s+\w+\s*=\s*(string|int\d*|uint\d*|float\d+|bool|byte|rune)/.test(line) &&
+                    /^[A-Z]/.test(symbol.name)
+                ) {
+                    return {
+                        name: symbol.name,
+                        typeSymbol: symbol,
+                        fileUri: document.uri,
+                        isExported: true,
+                    }
+                }
+            }
+        }
+    }
+
+    return null
+}
+
+/**
+ * Find TypeScript enum type at position.
+ */
+function findTsEnumTypeAtPosition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    symbols: vscode.DocumentSymbol[],
+): EnumTypeInfo | null {
+    // Check the line at the cursor position
+    const line = document.lineAt(position.line).text
+
+    // First, check if it's an export type definition
+    const typeNameMatch = line.match(/export\s+type\s+(\w+)\s*=/)
+    if (!typeNameMatch) {
+        return null
+    }
+
+    const typeName = typeNameMatch[1]
+
+    // Check if the type definition contains typeof pattern
+    // It could be on the same line or the next line (code formatter behavior)
+    let foundTypeofPattern = false
+    const typeofPattern = new RegExp(`typeof\\s+${typeName}[A-Z]`)
+
+    // Check current line first
+    if (typeofPattern.test(line)) {
+        foundTypeofPattern = true
+    } else if (position.line + 1 < document.lineCount) {
+        // Check next line - formatter might put union types on next line
+        // Could be: | typeof ... or typeof ... |
+        const nextLine = document.lineAt(position.line + 1).text
+        if (typeofPattern.test(nextLine) && (/^\s*\|/.test(nextLine) || /\|\s*$/.test(nextLine))) {
+            foundTypeofPattern = true
+        }
+    }
+
+    if (!foundTypeofPattern) {
+        return null
+    }
+
+    // Find the corresponding symbol for this type
+    for (const symbol of symbols) {
+        if (symbol.name === typeName) {
+            return {
+                name: symbol.name,
+                typeSymbol: symbol,
+                fileUri: document.uri,
+                isExported: true,
+            }
+        }
+    }
+
+    // Create synthetic symbol if not found in symbol tree
+    const lineRange = document.lineAt(position.line).range
+    const syntheticSymbol: vscode.DocumentSymbol = {
+        name: typeName,
+        detail: "",
+        kind: vscode.SymbolKind.Class,
+        range: lineRange,
+        selectionRange: lineRange,
+        children: [],
+    }
+
+    return {
+        name: typeName,
+        typeSymbol: syntheticSymbol,
+        fileUri: document.uri,
+        isExported: true,
+    }
+}
+
+/**
+ * Find enum type at usage position.
+ */
+async function findEnumTypeAtUsagePosition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+): Promise<EnumTypeInfo | null> {
+    try {
+        // Get the word at cursor
+        const wordRange = document.getWordRangeAtPosition(position)
+        if (!wordRange) {
+            return null
+        }
+
+        const word = document.getText(wordRange)
+
+        // Check if starts with uppercase
+        if (!word || word[0] !== word[0].toUpperCase()) {
+            return null
+        }
+
+        // Use definition provider to find the type definition
+        const definitions = await vscode.commands.executeCommand<
+            (vscode.Location | vscode.LocationLink)[]
+        >(
+            "vscode.executeDefinitionProvider",
+            document.uri,
+            position,
+        )
+
+        if (!definitions || definitions.length === 0) {
+            return null
+        }
+
+        // Get the first definition
+        const definition = definitions[0]
+        let defUri: vscode.Uri
+        let defPosition: vscode.Position
+
+        if ("targetUri" in definition) {
+            defUri = definition.targetUri
+            defPosition = definition.targetRange.start
+        } else {
+            defUri = definition.uri
+            defPosition = definition.range.start
+        }
+
+        // Open the definition document
+        const defDocument = await vscode.workspace.openTextDocument(defUri)
+        const defLanguageId = defDocument.languageId
+
+        // Get symbols from the definition document
+        const defSymbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+            "vscode.executeDocumentSymbolProvider",
+            defUri,
+        )
+
+        if (!defSymbols) {
+            return null
+        }
+
+        // Find the type info at the definition position
+        if (defLanguageId === "go") {
+            return findGoEnumTypeByNameAndLine(defDocument, word, defPosition.line, defSymbols)
+        } else if (defLanguageId === "typescript" || defLanguageId === "typescriptreact") {
+            return findTsEnumTypeByNameAndLine(defDocument, word, defPosition.line, defSymbols)
+        }
+    } catch (error) {
+        console.error("Error finding type at usage position:", error)
+    }
+
+    return null
+}
+
+/**
+ * Find Go enum type by name and line number.
+ */
+function findGoEnumTypeByNameAndLine(
+    document: vscode.TextDocument,
+    typeName: string,
+    line: number,
+    symbols: vscode.DocumentSymbol[],
+): EnumTypeInfo | null {
+    for (const symbol of symbols) {
+        if (
+            (symbol.kind === vscode.SymbolKind.Class ||
+                symbol.kind === vscode.SymbolKind.Interface) &&
+            symbol.name === typeName &&
+            symbol.range.start.line === line
+        ) {
+            // Verify it's a type alias (type Status = string/int/bool/etc)
+            const lineText = document.lineAt(symbol.range.start.line).text
+
+            if (
+                /type\s+\w+\s*=\s*(string|int\d*|uint\d*|float\d+|bool|byte|rune)/.test(lineText) &&
+                /^[A-Z]/.test(symbol.name)
+            ) {
+                return {
+                    name: symbol.name,
+                    typeSymbol: symbol,
+                    fileUri: document.uri,
+                    isExported: true,
+                }
+            }
+        }
+    }
+
+    return null
+}
+
+/**
+ * Find TypeScript enum type by name and line number.
+ */
+function findTsEnumTypeByNameAndLine(
+    document: vscode.TextDocument,
+    typeName: string,
+    line: number,
+    symbols: vscode.DocumentSymbol[],
+): EnumTypeInfo | null {
+    // Check the line content
+    const lineText = document.lineAt(line).text
+
+    // Check if it's an export type definition
+    const typeNameMatch = lineText.match(new RegExp(`export\\s+type\\s+${typeName}\\s*=`))
+    if (!typeNameMatch) {
+        return null
+    }
+
+    // Check if the type definition contains typeof pattern (could be on next line)
+    let foundTypeofPattern = false
+    const typeofPattern = new RegExp(`typeof\\s+${typeName}[A-Z]`)
+
+    // Check current line first
+    if (typeofPattern.test(lineText)) {
+        foundTypeofPattern = true
+    } else if (line + 1 < document.lineCount) {
+        // Check next line - formatter might put union types on next line
+        // Could be: | typeof ... or typeof ... |
+        const nextLine = document.lineAt(line + 1).text
+        if (typeofPattern.test(nextLine) && (/^\s*\|/.test(nextLine) || /\|\s*$/.test(nextLine))) {
+            foundTypeofPattern = true
+        }
+    }
+
+    if (!foundTypeofPattern) {
+        return null
+    }
+
+    // Try to find actual symbol first
+    for (const symbol of symbols) {
+        if (symbol.name === typeName && symbol.range.start.line === line) {
+            return {
+                name: symbol.name,
+                typeSymbol: symbol,
+                fileUri: document.uri,
+                isExported: true,
+            }
+        }
+    }
+
+    // Create synthetic symbol if not found
+    const lineRange = document.lineAt(line).range
+    const syntheticSymbol: vscode.DocumentSymbol = {
+        name: typeName,
+        detail: "",
+        kind: vscode.SymbolKind.Class,
+        range: lineRange,
+        selectionRange: lineRange,
+        children: [],
+    }
+
+    return {
+        name: typeName,
+        typeSymbol: syntheticSymbol,
+        fileUri: document.uri,
+        isExported: true,
+    }
+}
+
+/**
+ * Get the field or property at the given position.
+ * Returns field info if cursor is on a struct field or interface property.
+ * Works both at definition site and usage site.
  */
 export async function getFieldInfoAtPosition(
     document: vscode.TextDocument,
@@ -581,8 +1290,8 @@ export async function getFieldInfoAtPosition(
 }
 
 /**
- * Find field/property at usage position (e.g., user.email)
- * Uses definition provider to locate the field definition
+ * Find field/property at usage position (e.g., user.email).
+ * Uses definition provider to locate the field definition.
  */
 async function findFieldAtUsagePosition(
     document: vscode.TextDocument,
@@ -651,7 +1360,7 @@ async function findFieldAtUsagePosition(
 }
 
 /**
- * Find Go struct field at position
+ * Find Go struct field at position.
  */
 function findGoFieldAtPosition(
     document: vscode.TextDocument,
@@ -695,7 +1404,7 @@ function findGoFieldAtPosition(
 }
 
 /**
- * Find TypeScript interface property at position
+ * Find TypeScript interface property at position.
  */
 function findTsPropertyAtPosition(
     document: vscode.TextDocument,
@@ -735,8 +1444,8 @@ function findTsPropertyAtPosition(
 }
 
 /**
- * Extract JSON tag from Go struct field
- * Parses the field definition line to extract json:"tagName"
+ * Extract JSON tag from Go struct field.
+ * Parses the field definition line to extract json:"tagName".
  */
 function extractJsonTagFromGoField(
     document: vscode.TextDocument,
@@ -760,9 +1469,9 @@ function extractJsonTagFromGoField(
 }
 
 /**
- * Find corresponding field/property in the other language
- * - For Go -> TS: Find TS interface property by name (using jsonTag if available)
- * - For TS -> Go: Find Go struct field by name (trying jsonTag match first, then name)
+ * Find corresponding field/property in the other language.
+ * - For Go -> TS: Find TS interface property by name (using jsonTag if available).
+ * - For TS -> Go: Find Go struct field by name (trying jsonTag match first, then name).
  */
 export async function findCorrespondingField(
     fieldInfo: FieldInfo,
@@ -780,8 +1489,8 @@ export async function findCorrespondingField(
 }
 
 /**
- * Find TypeScript property for a Go struct field
- * First find the corresponding TS interface, then find the property
+ * Find TypeScript property for a Go struct field.
+ * First find the corresponding TS interface, then find the property.
  */
 async function findTsPropertyForGoField(goFieldInfo: FieldInfo): Promise<FieldInfo | null> {
     // Find corresponding TS interface
@@ -843,8 +1552,8 @@ async function findTsPropertyForGoField(goFieldInfo: FieldInfo): Promise<FieldIn
 }
 
 /**
- * Find Go struct field for a TypeScript interface property
- * First find the corresponding Go struct, then find the field
+ * Find Go struct field for a TypeScript interface property.
+ * First find the corresponding Go struct, then find the field.
  */
 async function findGoFieldForTsProperty(tsPropertyInfo: FieldInfo): Promise<FieldInfo | null> {
     // Find corresponding Go struct
