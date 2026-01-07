@@ -2,11 +2,13 @@ import * as vscode from "vscode"
 import { isStrictAccessibilityEnabled } from "../config"
 import {
     capitalizeFirstLetter,
+    findCorrespondingField,
     findDeclarationLocationViaReferences,
     findGoFilesInSameDirectory,
     findMatchingSymbolsInGoFiles,
     findMatchingSymbolsInTsFiles,
     findTsFilesInSameDirectory,
+    getFieldInfoAtPosition,
     getFunctionNameAtPosition,
     isSymbolExported,
     lowercaseFirstLetter,
@@ -24,6 +26,15 @@ export async function findReferences(
 ): Promise<vscode.Location[]> {
     const languageId = document.languageId
 
+    // First, check if cursor is on a field/property
+    const fieldInfo = await getFieldInfoAtPosition(document, position)
+
+    if (fieldInfo) {
+        // Handle field/property references
+        return await findFieldReferences(fieldInfo, languageId)
+    }
+
+    // Otherwise, handle function/struct/interface references (original logic)
     // Get the symbol name at cursor
     const symbolName = getFunctionNameAtPosition(document, position)
     if (!symbolName) {
@@ -84,6 +95,37 @@ export async function findReferences(
     // Return ONLY cross-language references
     // Current language references will be provided by the native language server
     return references
+}
+
+/**
+ * Find cross-language references for a field/property
+ * - For Go struct field: Find TS interface property references
+ * - For TS interface property: Find Go struct field references
+ */
+async function findFieldReferences(
+    fieldInfo: import("../utils").FieldInfo,
+    sourceLanguage: string,
+): Promise<vscode.Location[]> {
+    // Find the corresponding field in the other language
+    const correspondingField = await findCorrespondingField(fieldInfo, sourceLanguage)
+
+    if (!correspondingField) {
+        return []
+    }
+
+    // Get references for the corresponding field
+    try {
+        const references = await vscode.commands.executeCommand<vscode.Location[]>(
+            "vscode.executeReferenceProvider",
+            correspondingField.fileUri,
+            correspondingField.fieldSymbol.selectionRange.start,
+        )
+
+        return references || []
+    } catch (error) {
+        console.error("Error finding field references:", error)
+        return []
+    }
 }
 
 /**

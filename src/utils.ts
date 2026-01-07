@@ -529,3 +529,400 @@ export function isSymbolNested(
 ): boolean {
     return parent.range.contains(symbol.range) && !parent.range.isEqual(symbol.range)
 }
+
+/**
+ * Field or property information
+ */
+export interface FieldInfo {
+    name: string // Field/property name
+    jsonTag?: string // JSON tag (for Go structs)
+    parentSymbol: vscode.DocumentSymbol // Parent struct or interface
+    fieldSymbol: vscode.DocumentSymbol // The field/property symbol itself
+    fileUri: vscode.Uri
+}
+
+/**
+ * Get the field or property at the given position
+ * Returns field info if cursor is on a struct field or interface property
+ * Works both at definition site and usage site
+ */
+export async function getFieldInfoAtPosition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+): Promise<FieldInfo | null> {
+    const languageId = document.languageId
+
+    // Get document symbols
+    const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+        "vscode.executeDocumentSymbolProvider",
+        document.uri,
+    )
+
+    if (!symbols) {
+        return null
+    }
+
+    // First, try to find field/property at definition position
+    let fieldInfo: FieldInfo | null = null
+
+    if (languageId === "go") {
+        fieldInfo = findGoFieldAtPosition(document, position, symbols)
+    } else if (languageId === "typescript" || languageId === "typescriptreact") {
+        fieldInfo = findTsPropertyAtPosition(document, position, symbols)
+    }
+
+    // If found at definition, return it
+    if (fieldInfo) {
+        return fieldInfo
+    }
+
+    // Otherwise, try to find field/property at usage position (e.g., user.email)
+    return await findFieldAtUsagePosition(document, position)
+}
+
+/**
+ * Find field/property at usage position (e.g., user.email)
+ * Uses definition provider to locate the field definition
+ */
+async function findFieldAtUsagePosition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+): Promise<FieldInfo | null> {
+    try {
+        // Get the word at cursor (should be the field/property name)
+        const wordRange = document.getWordRangeAtPosition(position)
+        if (!wordRange) {
+            return null
+        }
+
+        // Use definition provider to find the field definition
+        const definitions = await vscode.commands.executeCommand<
+            (vscode.Location | vscode.LocationLink)[]
+        >(
+            "vscode.executeDefinitionProvider",
+            document.uri,
+            position,
+        )
+
+        if (!definitions || definitions.length === 0) {
+            return null
+        }
+
+        // Get the first definition
+        const definition = definitions[0]
+        let defUri: vscode.Uri
+        let defPosition: vscode.Position
+
+        if ("targetUri" in definition) {
+            // LocationLink
+            defUri = definition.targetUri
+            defPosition = definition.targetRange.start
+        } else {
+            // Location
+            defUri = definition.uri
+            defPosition = definition.range.start
+        }
+
+        // Open the definition document
+        const defDocument = await vscode.workspace.openTextDocument(defUri)
+        const defLanguageId = defDocument.languageId
+
+        // Get symbols from the definition document
+        const defSymbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+            "vscode.executeDocumentSymbolProvider",
+            defUri,
+        )
+
+        if (!defSymbols) {
+            return null
+        }
+
+        // Find the field info at the definition position
+        if (defLanguageId === "go") {
+            return findGoFieldAtPosition(defDocument, defPosition, defSymbols)
+        } else if (defLanguageId === "typescript" || defLanguageId === "typescriptreact") {
+            return findTsPropertyAtPosition(defDocument, defPosition, defSymbols)
+        }
+    } catch (error) {
+        console.error("Error finding field at usage position:", error)
+    }
+
+    return null
+}
+
+/**
+ * Find Go struct field at position
+ */
+function findGoFieldAtPosition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    symbols: vscode.DocumentSymbol[],
+): FieldInfo | null {
+    for (const symbol of symbols) {
+        if (symbol.kind === vscode.SymbolKind.Struct) {
+            // Check if position is within this struct
+            if (symbol.range.contains(position)) {
+                // Look for field in struct children
+                for (const child of symbol.children) {
+                    if (
+                        (child.kind === vscode.SymbolKind.Field ||
+                            child.kind === vscode.SymbolKind.Property)
+                    ) {
+                        // Check if position is within the field's range (more flexible matching)
+                        // This handles both definition site and definition provider results
+                        if (
+                            child.selectionRange.contains(position) ||
+                            child.range.contains(position)
+                        ) {
+                            // Extract JSON tag if present
+                            const jsonTag = extractJsonTagFromGoField(document, child)
+
+                            return {
+                                name: child.name,
+                                jsonTag,
+                                parentSymbol: symbol,
+                                fieldSymbol: child,
+                                fileUri: document.uri,
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return null
+}
+
+/**
+ * Find TypeScript interface property at position
+ */
+function findTsPropertyAtPosition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    symbols: vscode.DocumentSymbol[],
+): FieldInfo | null {
+    for (const symbol of symbols) {
+        if (symbol.kind === vscode.SymbolKind.Interface) {
+            // Check if position is within this interface
+            if (symbol.range.contains(position)) {
+                // Look for property in interface children
+                for (const child of symbol.children) {
+                    if (
+                        (child.kind === vscode.SymbolKind.Property ||
+                            child.kind === vscode.SymbolKind.Field)
+                    ) {
+                        // Check if position is within the property's range (more flexible matching)
+                        // This handles both definition site and definition provider results
+                        if (
+                            child.selectionRange.contains(position) ||
+                            child.range.contains(position)
+                        ) {
+                            return {
+                                name: child.name,
+                                parentSymbol: symbol,
+                                fieldSymbol: child,
+                                fileUri: document.uri,
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return null
+}
+
+/**
+ * Extract JSON tag from Go struct field
+ * Parses the field definition line to extract json:"tagName"
+ */
+function extractJsonTagFromGoField(
+    document: vscode.TextDocument,
+    fieldSymbol: vscode.DocumentSymbol,
+): string | undefined {
+    try {
+        const line = document.lineAt(fieldSymbol.range.start.line).text
+
+        // Match json:"tagName" pattern
+        // Handle various formats: json:"name", json:"name,omitempty", etc.
+        const jsonTagMatch = line.match(/json:"([^,"]+)/)
+
+        if (jsonTagMatch && jsonTagMatch[1]) {
+            return jsonTagMatch[1]
+        }
+    } catch (error) {
+        console.error("Error extracting JSON tag:", error)
+    }
+
+    return undefined
+}
+
+/**
+ * Find corresponding field/property in the other language
+ * - For Go -> TS: Find TS interface property by name (using jsonTag if available)
+ * - For TS -> Go: Find Go struct field by name (trying jsonTag match first, then name)
+ */
+export async function findCorrespondingField(
+    fieldInfo: FieldInfo,
+    sourceLanguage: string,
+): Promise<FieldInfo | null> {
+    if (sourceLanguage === "go") {
+        // Go -> TypeScript
+        return await findTsPropertyForGoField(fieldInfo)
+    } else if (sourceLanguage === "typescript" || sourceLanguage === "typescriptreact") {
+        // TypeScript -> Go
+        return await findGoFieldForTsProperty(fieldInfo)
+    }
+
+    return null
+}
+
+/**
+ * Find TypeScript property for a Go struct field
+ * First find the corresponding TS interface, then find the property
+ */
+async function findTsPropertyForGoField(goFieldInfo: FieldInfo): Promise<FieldInfo | null> {
+    // Find corresponding TS interface
+    const tsFiles = await findTsFilesInSameDirectory(goFieldInfo.fileUri)
+    if (tsFiles.length === 0) {
+        return null
+    }
+
+    const structName = goFieldInfo.parentSymbol.name
+
+    // Try to find matching TS interface (lowercase first letter)
+    const lowercasedName = lowercaseFirstLetter(structName)
+    const searchNames = structName === lowercasedName ? [structName] : [lowercasedName, structName]
+
+    // Search name priority: jsonTag > fieldName
+    const propertySearchName = goFieldInfo.jsonTag || goFieldInfo.name
+
+    for (const tsFile of tsFiles) {
+        try {
+            // Open document to ensure language server is ready
+            await vscode.workspace.openTextDocument(tsFile)
+            const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+                "vscode.executeDocumentSymbolProvider",
+                tsFile,
+            )
+
+            if (!symbols) {
+                continue
+            }
+
+            for (const symbol of symbols) {
+                if (
+                    symbol.kind === vscode.SymbolKind.Interface &&
+                    searchNames.includes(symbol.name)
+                ) {
+                    // Found matching interface, now find property
+                    for (const child of symbol.children) {
+                        if (
+                            (child.kind === vscode.SymbolKind.Property ||
+                                child.kind === vscode.SymbolKind.Field) &&
+                            child.name === propertySearchName
+                        ) {
+                            return {
+                                name: child.name,
+                                parentSymbol: symbol,
+                                fieldSymbol: child,
+                                fileUri: tsFile,
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error(`Error processing TS file ${tsFile.fsPath}:`, error)
+        }
+    }
+
+    return null
+}
+
+/**
+ * Find Go struct field for a TypeScript interface property
+ * First find the corresponding Go struct, then find the field
+ */
+async function findGoFieldForTsProperty(tsPropertyInfo: FieldInfo): Promise<FieldInfo | null> {
+    // Find corresponding Go struct
+    const goFiles = await findGoFilesInSameDirectory(tsPropertyInfo.fileUri)
+    if (goFiles.length === 0) {
+        return null
+    }
+
+    const interfaceName = tsPropertyInfo.parentSymbol.name
+
+    // Try to find matching Go struct (capitalize first letter)
+    const capitalizedName = capitalizeFirstLetter(interfaceName)
+    const searchNames = interfaceName === capitalizedName
+        ? [interfaceName]
+        : [capitalizedName, interfaceName]
+
+    const propertyName = tsPropertyInfo.name
+
+    for (const goFile of goFiles) {
+        try {
+            const document = await vscode.workspace.openTextDocument(goFile)
+            const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+                "vscode.executeDocumentSymbolProvider",
+                goFile,
+            )
+
+            if (!symbols) {
+                continue
+            }
+
+            for (const symbol of symbols) {
+                if (
+                    symbol.kind === vscode.SymbolKind.Struct &&
+                    searchNames.includes(symbol.name)
+                ) {
+                    // Found matching struct, now find field
+                    // Try 1: Match by JSON tag
+                    for (const child of symbol.children) {
+                        if (
+                            (child.kind === vscode.SymbolKind.Field ||
+                                child.kind === vscode.SymbolKind.Property)
+                        ) {
+                            const jsonTag = extractJsonTagFromGoField(document, child)
+                            if (jsonTag === propertyName) {
+                                return {
+                                    name: child.name,
+                                    jsonTag,
+                                    parentSymbol: symbol,
+                                    fieldSymbol: child,
+                                    fileUri: goFile,
+                                }
+                            }
+                        }
+                    }
+
+                    // Try 2: Match by field name
+                    for (const child of symbol.children) {
+                        if (
+                            (child.kind === vscode.SymbolKind.Field ||
+                                child.kind === vscode.SymbolKind.Property) &&
+                            child.name === propertyName
+                        ) {
+                            const jsonTag = extractJsonTagFromGoField(document, child)
+                            return {
+                                name: child.name,
+                                jsonTag,
+                                parentSymbol: symbol,
+                                fieldSymbol: child,
+                                fileUri: goFile,
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error(`Error processing Go file ${goFile.fsPath}:`, error)
+        }
+    }
+
+    return null
+}

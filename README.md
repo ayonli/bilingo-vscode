@@ -4,7 +4,8 @@ Find function and type references between Go and TypeScript in bilingual project
 
 ## Features
 
-- **Cross-Language Reference Finding**: Seamlessly find references between Go and TypeScript functions and types
+- **Cross-Language Reference Finding**: Seamlessly find references between Go and TypeScript functions
+  and types, along with struct fields/interface properties.
 - **Cross-Language Implementation Finding**: Find corresponding declarations across languages
   - Go functions ↔ TypeScript function declarations
   - Go structs ↔ TypeScript interfaces (+ TypeScript implementations)
@@ -77,11 +78,9 @@ export interface Article {
 }
 ```
 
-Along with all locations where the interface is used.
+Along with all locations where the interface or it's properties are used.
 
 This is especially useful for projects using [tygo](https://github.com/gzuidhof/tygo) to generate TypeScript types from Go structs.
-
-All references will be displayed in the References View.
 
 ### Example: Go Struct → TypeScript Interface → Implementations
 
