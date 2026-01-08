@@ -3,12 +3,14 @@ import { isStrictAccessibilityEnabled } from "../config"
 import {
     capitalizeFirstLetter,
     DeclarationInfo,
+    findCorrespondingInterface,
     findDeclarationLocationViaReferences,
     findGoFilesInSameDirectory,
     findMatchingSymbolsInGoFiles,
     findMatchingSymbolsInTsFiles,
     findTsFilesInSameDirectory,
     getFunctionNameAtPosition,
+    getInterfaceInfoAtPosition,
     isSymbolExported,
     lowercaseFirstLetter,
 } from "../utils"
@@ -20,6 +22,8 @@ import {
  * - TypeScript function → Go function declaration
  * - Go struct → TypeScript interface declaration
  * - TypeScript interface → Go struct declaration
+ * - Go interface (with methods) → TypeScript interface (with methods) declaration
+ * - TypeScript interface (with methods) → Go interface (with methods) declaration
  */
 export async function findImplementations(
     document: vscode.TextDocument,
@@ -28,6 +32,14 @@ export async function findImplementations(
     knownDeclaration?: { location: vscode.Location; kind: vscode.SymbolKind; name: string },
 ): Promise<vscode.Location[]> {
     const languageId = document.languageId
+
+    // First, check if cursor is on an interface (with methods)
+    const interfaceInfo = await getInterfaceInfoAtPosition(document, position)
+
+    if (interfaceInfo && interfaceInfo.hasMethods) {
+        // Handle interface (with methods) implementations
+        return await findInterfaceImplementations(interfaceInfo, languageId)
+    }
 
     let symbolName: string | null
     let declarationInfo: DeclarationInfo | null
@@ -243,4 +255,97 @@ async function findSymbolDeclarationInTsFiles(
     return symbolCandidates
         .filter((c) => c.score === bestScore)
         .map((c) => new vscode.Location(c.fileUri, c.symbol.selectionRange.start))
+}
+
+/**
+ * Find cross-language implementations for an interface (with methods).
+ * - For Go interface (with methods): Find TS classes/objects that implement the corresponding TS interface.
+ * - For TS interface (with methods): Find Go types/structs that implement the corresponding Go interface.
+ */
+async function findInterfaceImplementations(
+    interfaceInfo: import("../utils").InterfaceInfo,
+    sourceLanguage: string,
+): Promise<vscode.Location[]> {
+    // Find the corresponding interface in the other language
+    const correspondingInterface = await findCorrespondingInterface(
+        interfaceInfo,
+        sourceLanguage,
+    )
+
+    if (!correspondingInterface) {
+        return []
+    }
+
+    const implementations: vscode.Location[] = []
+
+    // Add the interface declaration itself as the first result
+    implementations.push(
+        new vscode.Location(
+            correspondingInterface.fileUri,
+            correspondingInterface.symbol.selectionRange.start,
+        ),
+    )
+
+    // Find implementations of the corresponding interface
+    if (sourceLanguage === "go") {
+        // Go interface → TS interface → TS implementations (classes)
+        const tsImplementations = await findTsInterfaceImplementations(
+            correspondingInterface.fileUri,
+            correspondingInterface.symbol.selectionRange.start,
+        )
+        implementations.push(...tsImplementations)
+    } else if (sourceLanguage === "typescript" || sourceLanguage === "typescriptreact") {
+        // TS interface → Go interface → Go implementations (structs with methods)
+        const goImplementations = await findGoInterfaceImplementations(
+            correspondingInterface,
+        )
+        implementations.push(...goImplementations)
+    }
+
+    return implementations
+}
+
+/**
+ * Find TypeScript classes/objects that implement the given interface.
+ * Uses VS Code's built-in implementation provider.
+ */
+async function findTsInterfaceImplementations(
+    interfaceUri: vscode.Uri,
+    interfacePosition: vscode.Position,
+): Promise<vscode.Location[]> {
+    try {
+        const implementations = await vscode.commands.executeCommand<vscode.Location[]>(
+            "vscode.executeImplementationProvider",
+            interfaceUri,
+            interfacePosition,
+        )
+
+        return implementations || []
+    } catch (error) {
+        console.error("Error finding TS interface implementations:", error)
+        return []
+    }
+}
+
+/**
+ * Find Go types/structs that implement the given interface.
+ * In Go, implementation is implicit, so we need to find types that have all the interface methods.
+ */
+async function findGoInterfaceImplementations(
+    interfaceInfo: import("../utils").InterfaceInfo,
+): Promise<vscode.Location[]> {
+    try {
+        // Use VS Code's implementation provider for Go
+        // gopls can find implementations of Go interfaces
+        const implementations = await vscode.commands.executeCommand<vscode.Location[]>(
+            "vscode.executeImplementationProvider",
+            interfaceInfo.fileUri,
+            interfaceInfo.symbol.selectionRange.start,
+        )
+
+        return implementations || []
+    } catch (error) {
+        console.error("Error finding Go interface implementations:", error)
+        return []
+    }
 }

@@ -2,12 +2,13 @@ import * as vscode from "vscode"
 import * as path from "node:path"
 
 /**
- * Get the function name at the given position.
+ * Get the symbol name at the given position.
+ * This can be used for function/struct/interface lookups.
  * This can be either:
- * 1. A function being called (e.g., cursor on "getArticle" in "getArticle()").
- * 2. A function declaration (e.g., cursor on function name in "function getArticle()").
+ * 1. A symbol being referenced (e.g., cursor on "getArticle" in "getArticle()").
+ * 2. A symbol declaration (e.g., cursor on symbol name in "function getArticle()").
  */
-export function getFunctionNameAtPosition(
+export function getSymbolNameAtPosition(
     document: vscode.TextDocument,
     position: vscode.Position,
 ): string | null {
@@ -15,14 +16,24 @@ export function getFunctionNameAtPosition(
     const wordRange = document.getWordRangeAtPosition(position)
     if (wordRange) {
         const word = document.getText(wordRange)
-        // Verify this is actually a function name (not a keyword, etc.)
+        // Verify this is actually a symbol name (not a keyword, etc.)
         if (word && /^[a-zA-Z_]\w*$/.test(word)) {
             return word
         }
     }
 
-    // Fallback: try to extract function name from text pattern matching
+    // Fallback: try to extract symbol name from text pattern matching
     return extractFunctionNameFromText(document, position)
+}
+
+/**
+ * @deprecated Use getSymbolNameAtPosition instead
+ */
+export function getFunctionNameAtPosition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+): string | null {
+    return getSymbolNameAtPosition(document, position)
 }
 
 /**
@@ -83,6 +94,15 @@ export function lowercaseFirstLetter(str: string): string {
 }
 
 /**
+ * Check if a Go symbol name is exported (starts with uppercase letter).
+ */
+export function isGoSymbolExported(symbolName: string): boolean {
+    if (!symbolName) { return false }
+    const firstChar = symbolName[0]
+    return firstChar === firstChar.toUpperCase()
+}
+
+/**
  * Find all Go files in the same directory as the given file.
  */
 export async function findGoFilesInSameDirectory(fileUri: vscode.Uri): Promise<vscode.Uri[]> {
@@ -118,8 +138,7 @@ export async function isSymbolExported(
 ): Promise<boolean> {
     if (languageId === "go") {
         // In Go, exported symbols start with uppercase letter
-        const firstChar = symbolName[0]
-        return firstChar === firstChar.toUpperCase()
+        return isGoSymbolExported(symbolName)
     } else if (languageId === "typescript" || languageId === "typescriptreact") {
         // In TypeScript, check if the symbol has 'export' keyword
         const document = await vscode.workspace.openTextDocument(fileUri)
@@ -332,14 +351,45 @@ function calculateMatchScore(
 }
 
 /**
- * Find matching symbols in Go files (functions, structs).
- * Returns candidates with score for further processing.
+ * Find matching symbols in Go files.
+ * Routes to specialized functions based on symbol kind.
  */
 export async function findMatchingSymbolsInGoFiles(
     goFiles: vscode.Uri[],
     symbolNames: string[],
     isSourceExported: boolean,
     symbolKind: vscode.SymbolKind,
+    strictAccessibility: boolean,
+): Promise<SymbolCandidate[]> {
+    // Route to specialized functions based on symbol kind
+    if (symbolKind === vscode.SymbolKind.Function) {
+        // TS function -> Go function
+        return await findGoFunctionForTsFunctionViaMatching(
+            goFiles,
+            symbolNames,
+            isSourceExported,
+            strictAccessibility,
+        )
+    } else if (symbolKind === vscode.SymbolKind.Interface) {
+        // TS interface -> Go struct
+        return await findGoStructForTsInterfaceViaMatching(
+            goFiles,
+            symbolNames,
+        )
+    }
+
+    // No matching function for this symbol kind
+    return []
+}
+
+/**
+ * Find Go function for TypeScript function (via matching).
+ * This is used by the reference finder for TS function -> Go function lookups.
+ */
+async function findGoFunctionForTsFunctionViaMatching(
+    goFiles: vscode.Uri[],
+    symbolNames: string[],
+    isSourceExported: boolean,
     strictAccessibility: boolean,
 ): Promise<SymbolCandidate[]> {
     const candidates: SymbolCandidate[] = []
@@ -356,26 +406,13 @@ export async function findMatchingSymbolsInGoFiles(
             }
 
             for (const symbol of symbols) {
-                // Match the same kind of symbol
-                let isMatch = false
-                if (symbolKind === vscode.SymbolKind.Function) {
-                    isMatch = symbol.kind === vscode.SymbolKind.Function &&
-                        symbolNames.includes(symbol.name) &&
-                        isTopLevelFunction(symbol, symbols)
-                } else if (symbolKind === vscode.SymbolKind.Interface) {
-                    // TS interface -> Go struct
-                    isMatch = symbol.kind === vscode.SymbolKind.Struct &&
-                        symbolNames.includes(symbol.name)
-                }
-
-                if (isMatch) {
-                    const firstChar = symbol.name[0]
-                    const isGoExported = firstChar === firstChar.toUpperCase()
-
-                    // For structs/interfaces, only match exported ones
-                    if (symbolKind === vscode.SymbolKind.Interface && !isGoExported) {
-                        continue
-                    }
+                // TS function -> Go function
+                if (
+                    symbol.kind === vscode.SymbolKind.Function &&
+                    symbolNames.includes(symbol.name) &&
+                    isTopLevelFunction(symbol, symbols)
+                ) {
+                    const isGoExported = isGoSymbolExported(symbol.name)
 
                     // Check accessibility if strict mode is enabled
                     if (strictAccessibility && isSourceExported !== isGoExported) {
@@ -405,14 +442,96 @@ export async function findMatchingSymbolsInGoFiles(
 }
 
 /**
- * Find matching symbols in TypeScript files (functions, interfaces).
- * Returns candidates with score for further processing.
+ * Find Go struct for TypeScript interface (via matching).
+ * This is used by the reference finder for TS interface -> Go struct lookups.
+ */
+async function findGoStructForTsInterfaceViaMatching(
+    goFiles: vscode.Uri[],
+    symbolNames: string[],
+): Promise<SymbolCandidate[]> {
+    const candidates: SymbolCandidate[] = []
+
+    for (const fileUri of goFiles) {
+        try {
+            const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+                "vscode.executeDocumentSymbolProvider",
+                fileUri,
+            )
+
+            if (!symbols) {
+                continue
+            }
+
+            for (const symbol of symbols) {
+                // TS interface -> Go struct
+                if (
+                    symbol.kind === vscode.SymbolKind.Struct &&
+                    symbolNames.includes(symbol.name)
+                ) {
+                    const isGoExported = isGoSymbolExported(symbol.name)
+
+                    // Only match exported structs
+                    if (!isGoExported) {
+                        continue
+                    }
+
+                    // Exact name match
+                    const score = symbolNames[0] === symbol.name ? 100 : 90
+
+                    candidates.push({ symbol, fileUri, score })
+                }
+            }
+        } catch (error) {
+            console.error(`Error processing Go file ${fileUri.fsPath}:`, error)
+        }
+    }
+
+    // Sort by score (higher is better)
+    candidates.sort((a, b) => b.score - a.score)
+
+    return candidates
+}
+
+/**
+ * Find matching symbols in TypeScript files.
+ * Routes to specialized functions based on symbol kind.
  */
 export async function findMatchingSymbolsInTsFiles(
     tsFiles: vscode.Uri[],
     symbolNames: string[],
     isSourceExported: boolean,
     symbolKind: vscode.SymbolKind,
+    strictAccessibility: boolean,
+): Promise<SymbolCandidate[]> {
+    // Route to specialized functions based on symbol kind
+    if (symbolKind === vscode.SymbolKind.Function) {
+        // Go function -> TS function
+        return await findTsFunctionForGoFunctionViaMatching(
+            tsFiles,
+            symbolNames,
+            isSourceExported,
+            strictAccessibility,
+        )
+    } else if (symbolKind === vscode.SymbolKind.Struct) {
+        // Go struct -> TS interface
+        return await findTsInterfaceForGoStructViaMatching(
+            tsFiles,
+            symbolNames,
+        )
+    }
+
+    // No matching function for this symbol kind
+    return []
+}
+
+/**
+ * Find TypeScript function for Go function (via matching).
+ * This is used by the reference finder for Go function -> TS function lookups.
+ */
+async function findTsFunctionForGoFunctionViaMatching(
+    tsFiles: vscode.Uri[],
+    symbolNames: string[],
+    isSourceExported: boolean,
     strictAccessibility: boolean,
 ): Promise<SymbolCandidate[]> {
     // Open all TypeScript files to ensure language server is ready
@@ -437,27 +556,15 @@ export async function findMatchingSymbolsInTsFiles(
             }
 
             for (const symbol of symbols) {
-                // Match the same kind of symbol
-                let isMatch = false
-                if (symbolKind === vscode.SymbolKind.Function) {
-                    isMatch = symbol.kind === vscode.SymbolKind.Function &&
-                        symbolNames.includes(symbol.name) &&
-                        isTopLevelFunction(symbol, symbols)
-                } else if (symbolKind === vscode.SymbolKind.Struct) {
-                    // Go struct -> TS interface
-                    isMatch = symbol.kind === vscode.SymbolKind.Interface &&
-                        symbolNames.includes(symbol.name)
-                }
-
-                if (isMatch) {
+                // Go function -> TS function
+                if (
+                    symbol.kind === vscode.SymbolKind.Function &&
+                    symbolNames.includes(symbol.name) &&
+                    isTopLevelFunction(symbol, symbols)
+                ) {
                     // Check if TypeScript symbol is exported
                     const line = document.lineAt(symbol.range.start.line).text
                     const isTsExported = /^\s*export\s+/.test(line)
-
-                    // For structs/interfaces, only match exported ones
-                    if (symbolKind === vscode.SymbolKind.Struct && !isTsExported) {
-                        continue
-                    }
 
                     // Check accessibility if strict mode is enabled
                     if (strictAccessibility && isSourceExported !== isTsExported) {
@@ -471,6 +578,67 @@ export async function findMatchingSymbolsInTsFiles(
                         isTsExported,
                         isSourceExported,
                     )
+
+                    candidates.push({ symbol, fileUri, score })
+                }
+            }
+        } catch (error) {
+            console.error(`Error processing TypeScript file ${fileUri.fsPath}:`, error)
+        }
+    }
+
+    // Sort by score (higher is better)
+    candidates.sort((a, b) => b.score - a.score)
+
+    return candidates
+}
+
+/**
+ * Find TypeScript interface for Go struct (via matching).
+ * This is used by the reference finder for Go struct -> TS interface lookups.
+ */
+async function findTsInterfaceForGoStructViaMatching(
+    tsFiles: vscode.Uri[],
+    symbolNames: string[],
+): Promise<SymbolCandidate[]> {
+    // Open all TypeScript files to ensure language server is ready
+    await Promise.all(
+        tsFiles.map((fileUri) => vscode.workspace.openTextDocument(fileUri)),
+    )
+
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    const candidates: SymbolCandidate[] = []
+
+    for (const fileUri of tsFiles) {
+        try {
+            const document = await vscode.workspace.openTextDocument(fileUri)
+            const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+                "vscode.executeDocumentSymbolProvider",
+                fileUri,
+            )
+
+            if (!symbols) {
+                continue
+            }
+
+            for (const symbol of symbols) {
+                // Go struct -> TS interface
+                if (
+                    symbol.kind === vscode.SymbolKind.Interface &&
+                    symbolNames.includes(symbol.name)
+                ) {
+                    // Check if TypeScript symbol is exported
+                    const line = document.lineAt(symbol.range.start.line).text
+                    const isTsExported = /^\s*export\s+/.test(line)
+
+                    // Only match exported interfaces
+                    if (!isTsExported) {
+                        continue
+                    }
+
+                    // Exact name match
+                    const score = symbolNames[0] === symbol.name ? 100 : 90
 
                     candidates.push({ symbol, fileUri, score })
                 }
@@ -559,6 +727,38 @@ export interface FieldInfo {
     parentSymbol: vscode.DocumentSymbol // Parent struct or interface
     fieldSymbol: vscode.DocumentSymbol // The field/property symbol itself
     fileUri: vscode.Uri
+}
+
+/**
+ * Interface method information.
+ */
+export interface InterfaceMethodInfo {
+    name: string // Method name
+    parentSymbol: vscode.DocumentSymbol // Parent interface
+    methodSymbol: vscode.DocumentSymbol // The method symbol itself
+    fileUri: vscode.Uri
+    isExported: boolean // Whether the method is exported
+}
+
+/**
+ * Interface information (for the interface itself, not its members).
+ */
+export interface InterfaceInfo {
+    name: string // Interface name
+    symbol: vscode.DocumentSymbol // The interface symbol itself
+    fileUri: vscode.Uri
+    isExported: boolean // Whether the interface is exported
+    hasMethods: boolean // Whether the interface has methods (true) or only properties (false)
+}
+
+/**
+ * Symbol information (for function/struct/interface lookup in references).
+ */
+export interface SymbolInfo {
+    name: string // Symbol name
+    kind: vscode.SymbolKind // Symbol kind (Function/Struct/Interface)
+    location: vscode.Location // Declaration location
+    isExported: boolean // Whether the symbol is exported
 }
 
 /**
@@ -1469,6 +1669,61 @@ function extractJsonTagFromGoField(
 }
 
 /**
+ * Get symbol information (for function/struct/interface) at the given position.
+ * Works both at definition site and usage site.
+ * Returns null if the symbol is not exported (for structs and interfaces).
+ */
+export async function getSymbolInfoAtPosition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+): Promise<SymbolInfo | null> {
+    const languageId = document.languageId
+
+    // Get the symbol name at cursor
+    const symbolName = getSymbolNameAtPosition(document, position)
+    if (!symbolName) {
+        return null
+    }
+
+    // Find the declaration location and symbol kind
+    const declarationInfo = await findDeclarationLocationViaReferences(
+        document,
+        position,
+        symbolName,
+    )
+
+    if (!declarationInfo) {
+        return null
+    }
+
+    const { location: declarationLocation, kind: symbolKind } = declarationInfo
+
+    // Check if the symbol is exported (for strict accessibility)
+    const isExported = await isSymbolExported(
+        declarationLocation.uri,
+        declarationLocation.range.start,
+        symbolName,
+        languageId,
+        symbolKind,
+    )
+
+    // For structs and interfaces, only process exported ones
+    if (
+        (symbolKind === vscode.SymbolKind.Struct || symbolKind === vscode.SymbolKind.Interface) &&
+        !isExported
+    ) {
+        return null
+    }
+
+    return {
+        name: symbolName,
+        kind: symbolKind,
+        location: declarationLocation,
+        isExported,
+    }
+}
+
+/**
  * Find corresponding field/property in the other language.
  * - For Go -> TS: Find TS interface property by name (using jsonTag if available).
  * - For TS -> Go: Find Go struct field by name (trying jsonTag match first, then name).
@@ -1630,6 +1885,949 @@ async function findGoFieldForTsProperty(tsPropertyInfo: FieldInfo): Promise<Fiel
             }
         } catch (error) {
             console.error(`Error processing Go file ${goFile.fsPath}:`, error)
+        }
+    }
+
+    return null
+}
+
+/**
+ * Get the interface method at the given position.
+ * Returns method info if cursor is on an interface method.
+ * Works both at definition site and usage site.
+ */
+export async function getInterfaceMethodInfoAtPosition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+): Promise<InterfaceMethodInfo | null> {
+    const languageId = document.languageId
+
+    // Get document symbols
+    const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+        "vscode.executeDocumentSymbolProvider",
+        document.uri,
+    )
+
+    if (!symbols) {
+        return null
+    }
+
+    // First, try to find method at definition position
+    let methodInfo: InterfaceMethodInfo | null = null
+
+    if (languageId === "go") {
+        methodInfo = findGoInterfaceMethodAtPosition(document, position, symbols)
+    } else if (languageId === "typescript" || languageId === "typescriptreact") {
+        methodInfo = findTsInterfaceMethodAtPosition(document, position, symbols)
+    }
+
+    // If found at definition, return it
+    if (methodInfo) {
+        return methodInfo
+    }
+
+    // Otherwise, try to find method at usage position
+    return await findInterfaceMethodAtUsagePosition(document, position)
+}
+
+/**
+ * Find Go interface method at position.
+ */
+function findGoInterfaceMethodAtPosition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    symbols: vscode.DocumentSymbol[],
+): InterfaceMethodInfo | null {
+    for (const symbol of symbols) {
+        if (symbol.kind === vscode.SymbolKind.Interface) {
+            // Check if position is within this interface
+            if (symbol.range.contains(position)) {
+                // Look for method in interface children
+                for (const child of symbol.children) {
+                    if (child.kind === vscode.SymbolKind.Method) {
+                        // Check if position is within the method's range
+                        if (
+                            child.selectionRange.contains(position) ||
+                            child.range.contains(position)
+                        ) {
+                            // In Go, interface methods are always exported if the interface is exported
+                            const isExported = symbol.name[0] === symbol.name[0].toUpperCase()
+
+                            return {
+                                name: child.name,
+                                parentSymbol: symbol,
+                                methodSymbol: child,
+                                fileUri: document.uri,
+                                isExported,
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return null
+}
+
+/**
+ * Find TypeScript interface method at position.
+ */
+function findTsInterfaceMethodAtPosition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    symbols: vscode.DocumentSymbol[],
+): InterfaceMethodInfo | null {
+    for (const symbol of symbols) {
+        if (symbol.kind === vscode.SymbolKind.Interface) {
+            // Check if position is within this interface
+            if (symbol.range.contains(position)) {
+                // Look for method in interface children
+                for (const child of symbol.children) {
+                    if (child.kind === vscode.SymbolKind.Method) {
+                        // Check if position is within the method's range
+                        if (
+                            child.selectionRange.contains(position) ||
+                            child.range.contains(position)
+                        ) {
+                            // Check if TypeScript interface is exported
+                            const line = document.lineAt(symbol.range.start.line).text
+                            const isExported = /^\s*export\s+/.test(line)
+
+                            return {
+                                name: child.name,
+                                parentSymbol: symbol,
+                                methodSymbol: child,
+                                fileUri: document.uri,
+                                isExported,
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return null
+}
+
+/**
+ * Find interface method at usage position.
+ * Uses definition provider to locate the method definition.
+ */
+async function findInterfaceMethodAtUsagePosition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+): Promise<InterfaceMethodInfo | null> {
+    try {
+        // Get the word at cursor (should be the method name)
+        const wordRange = document.getWordRangeAtPosition(position)
+        if (!wordRange) {
+            return null
+        }
+
+        // Use definition provider to find the method definition
+        const definitions = await vscode.commands.executeCommand<
+            (vscode.Location | vscode.LocationLink)[]
+        >(
+            "vscode.executeDefinitionProvider",
+            document.uri,
+            position,
+        )
+
+        if (!definitions || definitions.length === 0) {
+            return null
+        }
+
+        // Get the first definition
+        const definition = definitions[0]
+        let defUri: vscode.Uri
+        let defPosition: vscode.Position
+
+        if ("targetUri" in definition) {
+            // LocationLink
+            defUri = definition.targetUri
+            defPosition = definition.targetRange.start
+        } else {
+            // Location
+            defUri = definition.uri
+            defPosition = definition.range.start
+        }
+
+        // Open the definition document
+        const defDocument = await vscode.workspace.openTextDocument(defUri)
+        const defLanguageId = defDocument.languageId
+
+        // Get symbols from the definition document
+        const defSymbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+            "vscode.executeDocumentSymbolProvider",
+            defUri,
+        )
+
+        if (!defSymbols) {
+            return null
+        }
+
+        // Find the method info at the definition position
+        if (defLanguageId === "go") {
+            return findGoInterfaceMethodAtPosition(defDocument, defPosition, defSymbols)
+        } else if (defLanguageId === "typescript" || defLanguageId === "typescriptreact") {
+            return findTsInterfaceMethodAtPosition(defDocument, defPosition, defSymbols)
+        }
+    } catch (error) {
+        console.error("Error finding interface method at usage position:", error)
+    }
+
+    return null
+}
+
+/**
+ * Find corresponding interface method in the other language.
+ * - For Go -> TS: Find TS interface method by name.
+ * - For TS -> Go: Find Go interface method by name.
+ */
+export async function findCorrespondingInterfaceMethod(
+    methodInfo: InterfaceMethodInfo,
+    sourceLanguage: string,
+): Promise<InterfaceMethodInfo | null> {
+    if (sourceLanguage === "go") {
+        // Go -> TypeScript
+        return await findTsMethodForGoMethod(methodInfo)
+    } else if (sourceLanguage === "typescript" || sourceLanguage === "typescriptreact") {
+        // TypeScript -> Go
+        return await findGoMethodForTsMethod(methodInfo)
+    }
+
+    return null
+}
+
+/**
+ * Find TypeScript interface method for a Go interface method.
+ * First find the corresponding TS interface, then find the method.
+ */
+async function findTsMethodForGoMethod(
+    goMethodInfo: InterfaceMethodInfo,
+): Promise<InterfaceMethodInfo | null> {
+    // Find corresponding TS interface
+    const tsFiles = await findTsFilesInSameDirectory(goMethodInfo.fileUri)
+    if (tsFiles.length === 0) {
+        return null
+    }
+
+    const interfaceName = goMethodInfo.parentSymbol.name
+
+    // Interface name must match exactly (no case conversion)
+    const searchNames = [interfaceName]
+
+    // Method name: lowercase first letter
+    const methodSearchName = lowercaseFirstLetter(goMethodInfo.name)
+
+    for (const tsFile of tsFiles) {
+        try {
+            // Open document to ensure language server is ready
+            const document = await vscode.workspace.openTextDocument(tsFile)
+            const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+                "vscode.executeDocumentSymbolProvider",
+                tsFile,
+            )
+
+            if (!symbols) {
+                continue
+            }
+
+            for (const symbol of symbols) {
+                if (
+                    symbol.kind === vscode.SymbolKind.Interface &&
+                    searchNames.includes(symbol.name)
+                ) {
+                    // Found matching interface, now find method
+                    for (const child of symbol.children) {
+                        if (
+                            child.kind === vscode.SymbolKind.Method &&
+                            child.name === methodSearchName
+                        ) {
+                            // Check if TypeScript interface is exported
+                            const line = document.lineAt(symbol.range.start.line).text
+                            const isExported = /^\s*export\s+/.test(line)
+
+                            return {
+                                name: child.name,
+                                parentSymbol: symbol,
+                                methodSymbol: child,
+                                fileUri: tsFile,
+                                isExported,
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error(`Error processing TS file ${tsFile.fsPath}:`, error)
+        }
+    }
+
+    return null
+}
+
+/**
+ * Find Go interface method for a TypeScript interface method.
+ * First find the corresponding Go interface, then find the method.
+ */
+async function findGoMethodForTsMethod(
+    tsMethodInfo: InterfaceMethodInfo,
+): Promise<InterfaceMethodInfo | null> {
+    // Find corresponding Go interface
+    const goFiles = await findGoFilesInSameDirectory(tsMethodInfo.fileUri)
+    if (goFiles.length === 0) {
+        return null
+    }
+
+    const interfaceName = tsMethodInfo.parentSymbol.name
+
+    // Interface name must match exactly (no case conversion)
+    const searchNames = [interfaceName]
+
+    // Method name: capitalize first letter
+    const methodSearchName = capitalizeFirstLetter(tsMethodInfo.name)
+
+    for (const goFile of goFiles) {
+        try {
+            const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+                "vscode.executeDocumentSymbolProvider",
+                goFile,
+            )
+
+            if (!symbols) {
+                continue
+            }
+
+            for (const symbol of symbols) {
+                if (
+                    symbol.kind === vscode.SymbolKind.Interface &&
+                    searchNames.includes(symbol.name)
+                ) {
+                    // Found matching interface, now find method
+                    for (const child of symbol.children) {
+                        if (
+                            child.kind === vscode.SymbolKind.Method &&
+                            child.name === methodSearchName
+                        ) {
+                            // In Go, interface methods are always exported if the interface is exported
+                            const isExported = symbol.name[0] === symbol.name[0].toUpperCase()
+
+                            return {
+                                name: child.name,
+                                parentSymbol: symbol,
+                                methodSymbol: child,
+                                fileUri: goFile,
+                                isExported,
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error(`Error processing Go file ${goFile.fsPath}:`, error)
+        }
+    }
+
+    return null
+}
+
+/**
+ * Get the interface at the given position (the interface itself, not its members).
+ * Returns interface info if cursor is on an interface name.
+ * Works both at definition site and usage site.
+ */
+export async function getInterfaceInfoAtPosition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+): Promise<InterfaceInfo | null> {
+    const languageId = document.languageId
+
+    // Get document symbols
+    const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+        "vscode.executeDocumentSymbolProvider",
+        document.uri,
+    )
+
+    if (!symbols) {
+        return null
+    }
+
+    // First, try to find interface at definition position
+    let interfaceInfo: InterfaceInfo | null = null
+
+    if (languageId === "go") {
+        interfaceInfo = findGoInterfaceAtPosition(document, position, symbols)
+    } else if (languageId === "typescript" || languageId === "typescriptreact") {
+        interfaceInfo = findTsInterfaceAtPosition(document, position, symbols)
+    }
+
+    // If found at definition, return it
+    if (interfaceInfo) {
+        return interfaceInfo
+    }
+
+    // Otherwise, try to find interface at usage position
+    return await findInterfaceAtUsagePosition(document, position)
+}
+
+/**
+ * Find Go interface or struct at position.
+ */
+function findGoInterfaceAtPosition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    symbols: vscode.DocumentSymbol[],
+): InterfaceInfo | null {
+    for (const symbol of symbols) {
+        // Match both interface and struct
+        if (
+            symbol.kind === vscode.SymbolKind.Interface ||
+            symbol.kind === vscode.SymbolKind.Struct
+        ) {
+            // Check if position is within the interface/struct name (selectionRange)
+            if (symbol.selectionRange.contains(position)) {
+                // Check if the interface/struct is exported
+                const isExported = symbol.name[0] === symbol.name[0].toUpperCase()
+
+                // Check if the interface has methods (struct won't have methods in symbol tree)
+                const hasMethods = symbol.children.some((child) =>
+                    child.kind === vscode.SymbolKind.Method
+                )
+
+                return {
+                    name: symbol.name,
+                    symbol,
+                    fileUri: document.uri,
+                    isExported,
+                    hasMethods,
+                }
+            }
+        }
+    }
+
+    return null
+}
+
+/**
+ * Find TypeScript interface or type alias at position.
+ */
+function findTsInterfaceAtPosition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    symbols: vscode.DocumentSymbol[],
+): InterfaceInfo | null {
+    for (const symbol of symbols) {
+        // Match both interface and type alias (Variable)
+        if (
+            symbol.kind === vscode.SymbolKind.Interface ||
+            symbol.kind === vscode.SymbolKind.Variable
+        ) {
+            // Check if position is within the interface/type name (selectionRange)
+            if (symbol.selectionRange.contains(position)) {
+                // Check if TypeScript symbol is exported
+                const line = document.lineAt(symbol.range.start.line).text
+                const isExported = /^\s*export\s+/.test(line)
+
+                // For type alias, verify it's actually a type definition
+                if (symbol.kind === vscode.SymbolKind.Variable) {
+                    // Check if it's "export type Name = ..."
+                    if (!/^\s*export\s+type\s+/.test(line)) {
+                        continue
+                    }
+                }
+
+                // Check if the interface has methods
+                const hasMethods = symbol.children.some((child) =>
+                    child.kind === vscode.SymbolKind.Method
+                )
+
+                return {
+                    name: symbol.name,
+                    symbol,
+                    fileUri: document.uri,
+                    isExported,
+                    hasMethods,
+                }
+            }
+        }
+    }
+
+    return null
+}
+
+/**
+ * Find interface at usage position.
+ * Uses definition provider to locate the interface definition.
+ */
+async function findInterfaceAtUsagePosition(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+): Promise<InterfaceInfo | null> {
+    try {
+        // Get the word at cursor (should be the interface name)
+        const wordRange = document.getWordRangeAtPosition(position)
+        if (!wordRange) {
+            return null
+        }
+
+        // Use definition provider to find the interface definition
+        const definitions = await vscode.commands.executeCommand<
+            (vscode.Location | vscode.LocationLink)[]
+        >(
+            "vscode.executeDefinitionProvider",
+            document.uri,
+            position,
+        )
+
+        if (!definitions || definitions.length === 0) {
+            return null
+        }
+
+        // Get the first definition
+        const definition = definitions[0]
+        let defUri: vscode.Uri
+        let defPosition: vscode.Position
+
+        if ("targetUri" in definition) {
+            // LocationLink
+            defUri = definition.targetUri
+            defPosition = definition.targetRange.start
+        } else {
+            // Location
+            defUri = definition.uri
+            defPosition = definition.range.start
+        }
+
+        // Open the definition document
+        const defDocument = await vscode.workspace.openTextDocument(defUri)
+        const defLanguageId = defDocument.languageId
+
+        // Get symbols from the definition document
+        const defSymbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+            "vscode.executeDocumentSymbolProvider",
+            defUri,
+        )
+
+        if (!defSymbols) {
+            return null
+        }
+
+        // Find the interface info at the definition position
+        if (defLanguageId === "go") {
+            return findGoInterfaceAtPosition(defDocument, defPosition, defSymbols)
+        } else if (defLanguageId === "typescript" || defLanguageId === "typescriptreact") {
+            return findTsInterfaceAtPosition(defDocument, defPosition, defSymbols)
+        }
+    } catch (error) {
+        console.error("Error finding interface at usage position:", error)
+    }
+
+    return null
+}
+
+/**
+ * Find corresponding interface in the other language.
+ * - For Go interface (with methods) -> TS interface (with methods)
+ * - For Go interface (without methods, type constraint) -> TS type alias
+ * - For Go struct -> TS interface (without methods, only properties)
+ * - For TS interface (with methods) -> Go interface (with methods)
+ * - For TS interface (without methods, only properties) -> Go struct
+ * - For TS type alias -> Go interface (without methods, type constraint)
+ */
+export async function findCorrespondingInterface(
+    interfaceInfo: InterfaceInfo,
+    sourceLanguage: string,
+): Promise<InterfaceInfo | null> {
+    if (sourceLanguage === "go") {
+        // Go -> TypeScript
+        if (interfaceInfo.symbol.kind === vscode.SymbolKind.Interface) {
+            if (interfaceInfo.hasMethods) {
+                // Go interface with methods -> TS interface with methods
+                return await findTsInterfaceForGoInterface(interfaceInfo)
+            } else {
+                // Go interface without methods (type constraint) -> TS type alias
+                return await findTsTypeAliasForGoInterface(interfaceInfo)
+            }
+        } else if (interfaceInfo.symbol.kind === vscode.SymbolKind.Struct) {
+            // Go struct -> TS interface without methods (only properties)
+            return await findTsInterfaceForGoStruct(interfaceInfo)
+        }
+        return null
+    } else if (sourceLanguage === "typescript" || sourceLanguage === "typescriptreact") {
+        // TypeScript -> Go
+        if (interfaceInfo.symbol.kind === vscode.SymbolKind.Interface) {
+            if (interfaceInfo.hasMethods) {
+                // TS interface with methods -> Go interface with methods
+                return await findGoInterfaceForTsInterface(interfaceInfo)
+            } else {
+                // TS interface without methods -> Go struct
+                // Return struct as InterfaceInfo for consistency
+                return await findGoStructForTsInterface(interfaceInfo)
+            }
+        } else if (interfaceInfo.symbol.kind === vscode.SymbolKind.Variable) {
+            // TS type alias -> Go interface without methods (type constraint)
+            return await findGoInterfaceForTsTypeAlias(interfaceInfo)
+        }
+    }
+
+    return null
+}
+
+/**
+ * Find TypeScript interface for a Go interface.
+ */
+async function findTsInterfaceForGoInterface(
+    goInterfaceInfo: InterfaceInfo,
+): Promise<InterfaceInfo | null> {
+    const tsFiles = await findTsFilesInSameDirectory(goInterfaceInfo.fileUri)
+    if (tsFiles.length === 0) {
+        return null
+    }
+
+    const interfaceName = goInterfaceInfo.name
+
+    for (const tsFile of tsFiles) {
+        try {
+            const document = await vscode.workspace.openTextDocument(tsFile)
+            const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+                "vscode.executeDocumentSymbolProvider",
+                tsFile,
+            )
+
+            if (!symbols) {
+                continue
+            }
+
+            for (const symbol of symbols) {
+                if (
+                    symbol.kind === vscode.SymbolKind.Interface &&
+                    symbol.name === interfaceName
+                ) {
+                    // Check if TypeScript interface is exported
+                    const line = document.lineAt(symbol.range.start.line).text
+                    const isExported = /^\s*export\s+/.test(line)
+
+                    // Only match if it's exported
+                    if (!isExported) {
+                        continue
+                    }
+
+                    // Check if the interface has methods
+                    const hasMethods = symbol.children.some((child) =>
+                        child.kind === vscode.SymbolKind.Method
+                    )
+
+                    // Only return if it has methods (matching Go interface)
+                    if (hasMethods) {
+                        return {
+                            name: symbol.name,
+                            symbol,
+                            fileUri: tsFile,
+                            isExported,
+                            hasMethods,
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error(`Error processing TS file ${tsFile.fsPath}:`, error)
+        }
+    }
+
+    return null
+}
+
+/**
+ * Find Go interface for a TypeScript interface (with methods).
+ */
+async function findGoInterfaceForTsInterface(
+    tsInterfaceInfo: InterfaceInfo,
+): Promise<InterfaceInfo | null> {
+    const goFiles = await findGoFilesInSameDirectory(tsInterfaceInfo.fileUri)
+    if (goFiles.length === 0) {
+        return null
+    }
+
+    const interfaceName = tsInterfaceInfo.name
+
+    for (const goFile of goFiles) {
+        try {
+            const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+                "vscode.executeDocumentSymbolProvider",
+                goFile,
+            )
+
+            if (!symbols) {
+                continue
+            }
+
+            for (const symbol of symbols) {
+                if (
+                    symbol.kind === vscode.SymbolKind.Interface &&
+                    symbol.name === interfaceName
+                ) {
+                    // Check if the interface is exported
+                    const isExported = symbol.name[0] === symbol.name[0].toUpperCase()
+
+                    // Only match if it's exported
+                    if (!isExported) {
+                        continue
+                    }
+
+                    // Check if the interface has methods
+                    const hasMethods = symbol.children.some((child) =>
+                        child.kind === vscode.SymbolKind.Method
+                    )
+
+                    return {
+                        name: symbol.name,
+                        symbol,
+                        fileUri: goFile,
+                        isExported,
+                        hasMethods,
+                    }
+                }
+            }
+        } catch (error) {
+            console.error(`Error processing Go file ${goFile.fsPath}:`, error)
+        }
+    }
+
+    return null
+}
+
+/**
+ * Find Go struct for a TypeScript interface (without methods, only properties).
+ */
+async function findGoStructForTsInterface(
+    tsInterfaceInfo: InterfaceInfo,
+): Promise<InterfaceInfo | null> {
+    const goFiles = await findGoFilesInSameDirectory(tsInterfaceInfo.fileUri)
+    if (goFiles.length === 0) {
+        return null
+    }
+
+    const interfaceName = tsInterfaceInfo.name
+
+    for (const goFile of goFiles) {
+        try {
+            const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+                "vscode.executeDocumentSymbolProvider",
+                goFile,
+            )
+
+            if (!symbols) {
+                continue
+            }
+
+            for (const symbol of symbols) {
+                if (
+                    symbol.kind === vscode.SymbolKind.Struct &&
+                    symbol.name === interfaceName
+                ) {
+                    // Check if the struct is exported
+                    const isExported = symbol.name[0] === symbol.name[0].toUpperCase()
+
+                    // Only match if it's exported
+                    if (!isExported) {
+                        continue
+                    }
+
+                    // Return struct as InterfaceInfo for consistency
+                    return {
+                        name: symbol.name,
+                        symbol,
+                        fileUri: goFile,
+                        isExported,
+                        hasMethods: false, // Struct doesn't have methods in the symbol tree
+                    }
+                }
+            }
+        } catch (error) {
+            console.error(`Error processing Go file ${goFile.fsPath}:`, error)
+        }
+    }
+
+    return null
+}
+
+/**
+ * Find TypeScript type alias for a Go interface (without methods, type constraint).
+ */
+async function findTsTypeAliasForGoInterface(
+    goInterfaceInfo: InterfaceInfo,
+): Promise<InterfaceInfo | null> {
+    const tsFiles = await findTsFilesInSameDirectory(goInterfaceInfo.fileUri)
+    if (tsFiles.length === 0) {
+        return null
+    }
+
+    const interfaceName = goInterfaceInfo.name
+
+    for (const tsFile of tsFiles) {
+        try {
+            const document = await vscode.workspace.openTextDocument(tsFile)
+            const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+                "vscode.executeDocumentSymbolProvider",
+                tsFile,
+            )
+
+            if (!symbols) {
+                continue
+            }
+
+            for (const symbol of symbols) {
+                // Type alias shows as Variable in VS Code
+                if (
+                    symbol.kind === vscode.SymbolKind.Variable &&
+                    symbol.name === interfaceName
+                ) {
+                    // Check if it's a type alias (export type Name = ...)
+                    const line = document.lineAt(symbol.range.start.line).text
+                    if (!/^\s*export\s+type\s+/.test(line)) {
+                        continue
+                    }
+
+                    return {
+                        name: symbol.name,
+                        symbol,
+                        fileUri: tsFile,
+                        isExported: true, // Already verified by regex
+                        hasMethods: false, // Type alias doesn't have methods
+                    }
+                }
+            }
+        } catch (error) {
+            console.error(`Error processing TS file ${tsFile.fsPath}:`, error)
+        }
+    }
+
+    return null
+}
+
+/**
+ * Find Go interface (without methods, type constraint) for a TypeScript type alias.
+ */
+async function findGoInterfaceForTsTypeAlias(
+    tsTypeAliasInfo: InterfaceInfo,
+): Promise<InterfaceInfo | null> {
+    const goFiles = await findGoFilesInSameDirectory(tsTypeAliasInfo.fileUri)
+    if (goFiles.length === 0) {
+        return null
+    }
+
+    const typeName = tsTypeAliasInfo.name
+
+    for (const goFile of goFiles) {
+        try {
+            const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+                "vscode.executeDocumentSymbolProvider",
+                goFile,
+            )
+
+            if (!symbols) {
+                continue
+            }
+
+            for (const symbol of symbols) {
+                if (
+                    symbol.kind === vscode.SymbolKind.Interface &&
+                    symbol.name === typeName
+                ) {
+                    // Check if the interface is exported
+                    const isExported = symbol.name[0] === symbol.name[0].toUpperCase()
+
+                    // Only match if it's exported
+                    if (!isExported) {
+                        continue
+                    }
+
+                    // Check if the interface has no methods (type constraint)
+                    const hasMethods = symbol.children.some((child) =>
+                        child.kind === vscode.SymbolKind.Method
+                    )
+
+                    // Only return if it has no methods (type constraint)
+                    if (!hasMethods) {
+                        return {
+                            name: symbol.name,
+                            symbol,
+                            fileUri: goFile,
+                            isExported,
+                            hasMethods: false,
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error(`Error processing Go file ${goFile.fsPath}:`, error)
+        }
+    }
+
+    return null
+}
+
+/**
+ * Find TypeScript interface (without methods, only properties) for a Go struct.
+ */
+async function findTsInterfaceForGoStruct(
+    goStructInfo: InterfaceInfo,
+): Promise<InterfaceInfo | null> {
+    const tsFiles = await findTsFilesInSameDirectory(goStructInfo.fileUri)
+    if (tsFiles.length === 0) {
+        return null
+    }
+
+    const structName = goStructInfo.name
+
+    for (const tsFile of tsFiles) {
+        try {
+            const document = await vscode.workspace.openTextDocument(tsFile)
+            const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
+                "vscode.executeDocumentSymbolProvider",
+                tsFile,
+            )
+
+            if (!symbols) {
+                continue
+            }
+
+            for (const symbol of symbols) {
+                if (
+                    symbol.kind === vscode.SymbolKind.Interface &&
+                    symbol.name === structName
+                ) {
+                    // Check if TypeScript interface is exported
+                    const line = document.lineAt(symbol.range.start.line).text
+                    const isExported = /^\s*export\s+/.test(line)
+
+                    // Only match if it's exported
+                    if (!isExported) {
+                        continue
+                    }
+
+                    // Check if the interface has no methods (only properties)
+                    const hasMethods = symbol.children.some((child) =>
+                        child.kind === vscode.SymbolKind.Method
+                    )
+
+                    // Only return if it has no methods (only properties)
+                    if (!hasMethods) {
+                        return {
+                            name: symbol.name,
+                            symbol,
+                            fileUri: tsFile,
+                            isExported,
+                            hasMethods: false,
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error(`Error processing TS file ${tsFile.fsPath}:`, error)
         }
     }
 

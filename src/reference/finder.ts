@@ -3,7 +3,8 @@ import { isStrictAccessibilityEnabled } from "../config"
 import {
     capitalizeFirstLetter,
     findCorrespondingField,
-    findDeclarationLocationViaReferences,
+    findCorrespondingInterface,
+    findCorrespondingInterfaceMethod,
     findGoFilesInSameDirectory,
     findMatchingSymbolsInGoFiles,
     findMatchingSymbolsInTsFiles,
@@ -11,9 +12,10 @@ import {
     getEnumConstInfoAtPosition,
     getEnumTypeInfoAtPosition,
     getFieldInfoAtPosition,
-    getFunctionNameAtPosition,
+    getInterfaceInfoAtPosition,
+    getInterfaceMethodInfoAtPosition,
+    getSymbolInfoAtPosition,
     isGoEnumConst,
-    isSymbolExported,
     isTsEnumConst,
     lowercaseFirstLetter,
 } from "../utils"
@@ -60,7 +62,23 @@ export async function findReferences(
         return await findEnumConstReferences(constConstInfo, languageId)
     }
 
-    // Third, check if cursor is on a field/property
+    // Third, check if cursor is on an interface (the interface itself, not members)
+    const interfaceInfo = await getInterfaceInfoAtPosition(document, position)
+
+    if (interfaceInfo) {
+        // Handle interface references
+        return await findInterfaceReferences(interfaceInfo, languageId)
+    }
+
+    // Fourth, check if cursor is on an interface method
+    const methodInfo = await getInterfaceMethodInfoAtPosition(document, position)
+
+    if (methodInfo) {
+        // Handle interface method references
+        return await findInterfaceMethodReferences(methodInfo, languageId)
+    }
+
+    // Fifth, check if cursor is on a field/property
     const fieldInfo = await getFieldInfoAtPosition(document, position)
 
     if (fieldInfo) {
@@ -68,67 +86,15 @@ export async function findReferences(
         return await findFieldReferences(fieldInfo, languageId)
     }
 
-    // Otherwise, handle function/struct/interface references (original logic)
-    // Get the symbol name at cursor
-    const symbolName = getFunctionNameAtPosition(document, position)
-    if (!symbolName) {
-        return []
+    // Sixth, handle function/struct/interface references
+    const symbolInfo = await getSymbolInfoAtPosition(document, position)
+
+    if (symbolInfo) {
+        // Handle function/struct/interface references
+        return await findSymbolReferences(symbolInfo, languageId)
     }
 
-    // Find the declaration location and symbol kind
-    const declarationInfo = await findDeclarationLocationViaReferences(
-        document,
-        position,
-        symbolName,
-    )
-
-    if (!declarationInfo) {
-        return []
-    }
-
-    const { location: declarationLocation, kind: symbolKind } = declarationInfo
-
-    // Check if the symbol is exported (for strict accessibility)
-    const isExported = await isSymbolExported(
-        declarationLocation.uri,
-        declarationLocation.range.start,
-        symbolName,
-        languageId,
-        symbolKind,
-    )
-
-    // For structs and interfaces, only process exported ones
-    if (
-        (symbolKind === vscode.SymbolKind.Struct || symbolKind === vscode.SymbolKind.Interface) &&
-        !isExported
-    ) {
-        return []
-    }
-
-    // Find ONLY cross-language references (not current language)
-    let references: vscode.Location[] = []
-
-    if (languageId === "typescript" || languageId === "typescriptreact") {
-        // From TypeScript, find Go references ONLY
-        references = await findGoReferences(
-            declarationLocation.uri,
-            symbolName,
-            isExported,
-            symbolKind,
-        )
-    } else if (languageId === "go") {
-        // From Go, find TypeScript references ONLY
-        references = await findTsReferences(
-            declarationLocation.uri,
-            symbolName,
-            isExported,
-            symbolKind,
-        )
-    }
-
-    // Return ONLY cross-language references
-    // Current language references will be provided by the native language server
-    return references
+    return []
 }
 
 /**
@@ -464,6 +430,109 @@ async function findFieldReferences(
 }
 
 /**
+ * Find cross-language references for an interface (the interface itself).
+ * - For Go interface: Find TS interface (with methods) references.
+ * - For TS interface (with methods): Find Go interface references.
+ * - For TS interface (without methods): Find Go struct references.
+ */
+async function findInterfaceReferences(
+    interfaceInfo: import("../utils").InterfaceInfo,
+    sourceLanguage: string,
+): Promise<vscode.Location[]> {
+    // Find the corresponding interface in the other language
+    const correspondingInterface = await findCorrespondingInterface(
+        interfaceInfo,
+        sourceLanguage,
+    )
+
+    if (!correspondingInterface) {
+        return []
+    }
+
+    // Get references for the corresponding interface
+    try {
+        const references = await vscode.commands.executeCommand<vscode.Location[]>(
+            "vscode.executeReferenceProvider",
+            correspondingInterface.fileUri,
+            correspondingInterface.symbol.selectionRange.start,
+        )
+
+        return references || []
+    } catch (error) {
+        console.error("Error finding interface references:", error)
+        return []
+    }
+}
+
+/**
+ * Find cross-language references for an interface method.
+ * - For Go interface method: Find TS interface method references.
+ * - For TS interface method: Find Go interface method references.
+ */
+async function findInterfaceMethodReferences(
+    methodInfo: import("../utils").InterfaceMethodInfo,
+    sourceLanguage: string,
+): Promise<vscode.Location[]> {
+    // Find the corresponding method in the other language
+    const correspondingMethod = await findCorrespondingInterfaceMethod(
+        methodInfo,
+        sourceLanguage,
+    )
+
+    if (!correspondingMethod) {
+        return []
+    }
+
+    // Get references for the corresponding method
+    try {
+        const references = await vscode.commands.executeCommand<vscode.Location[]>(
+            "vscode.executeReferenceProvider",
+            correspondingMethod.fileUri,
+            correspondingMethod.methodSymbol.selectionRange.start,
+        )
+
+        return references || []
+    } catch (error) {
+        console.error("Error finding interface method references:", error)
+        return []
+    }
+}
+
+/**
+ * Find cross-language references for a symbol (function/struct/interface).
+ * - For Go function: Find TS function references.
+ * - For TS function: Find Go function references.
+ * - For Go struct: Find TS interface references.
+ * - For TS interface: Find Go struct references.
+ * - For Go interface: Find TS interface/type alias references.
+ * - For TS type alias: Find Go interface references.
+ */
+async function findSymbolReferences(
+    symbolInfo: import("../utils").SymbolInfo,
+    sourceLanguage: string,
+): Promise<vscode.Location[]> {
+    if (sourceLanguage === "typescript" || sourceLanguage === "typescriptreact") {
+        // From TypeScript, find Go references ONLY
+        return await findGoReferences(
+            symbolInfo.location.uri,
+            symbolInfo.name,
+            symbolInfo.isExported,
+            symbolInfo.kind,
+        )
+    } else if (sourceLanguage === "go") {
+        // From Go, find TypeScript references ONLY
+        return await findTsReferences(
+            symbolInfo.location.uri,
+            symbolInfo.name,
+            symbolInfo.isExported,
+            symbolInfo.kind,
+        )
+    }
+
+    return []
+}
+
+/**
  * Find Go references for a TypeScript symbol.
  */
 async function findGoReferences(
@@ -484,7 +553,7 @@ async function findGoReferences(
         ? [symbolName]
         : [capitalizedName, symbolName]
 
-    return await findSymbolInGoFiles(goFiles, searchNames, isSourceExported, symbolKind)
+    return await findSymbolReferencesInGoFiles(goFiles, searchNames, isSourceExported, symbolKind)
 }
 
 /**
@@ -506,13 +575,13 @@ async function findTsReferences(
     const lowercasedName = lowercaseFirstLetter(symbolName)
     const searchNames = symbolName === lowercasedName ? [symbolName] : [lowercasedName, symbolName]
 
-    return await findSymbolInTsFiles(tsFiles, searchNames, isSourceExported, symbolKind)
+    return await findSymbolReferencesInTsFiles(tsFiles, searchNames, isSourceExported, symbolKind)
 }
 
 /**
  * Find symbol references in Go files (functions, structs).
  */
-async function findSymbolInGoFiles(
+async function findSymbolReferencesInGoFiles(
     goFiles: vscode.Uri[],
     symbolNames: string[],
     isSourceExported: boolean,
@@ -565,7 +634,7 @@ async function findSymbolInGoFiles(
 /**
  * Find symbol references in TypeScript files (functions, interfaces).
  */
-async function findSymbolInTsFiles(
+async function findSymbolReferencesInTsFiles(
     tsFiles: vscode.Uri[],
     symbolNames: string[],
     isSourceExported: boolean,

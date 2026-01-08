@@ -5,21 +5,20 @@ Find function and type references between Go and TypeScript in bilingual project
 ## Features
 
 - **Cross-Language Reference Finding**: Seamlessly find references between Go and TypeScript functions,
-  types, enum constants, and struct fields/interface properties.
-- **Cross-Language Implementation Finding**: Find corresponding declarations across languages
-  - Go functions ↔ TypeScript function declarations
-  - Go structs ↔ TypeScript interfaces (+ TypeScript implementations)
+  interfaces, type alias, enum constants, and struct fields ↔ interface properties.
+- **Cross-Language Implementation Finding**: Find corresponding implementations across languages
+  - Go functions ↔ TypeScript functions
+  - Go interfaces / structs ↔ TypeScript interfaces / classes
 - **Type Matching**: Go structs ↔ TypeScript interfaces and enum constants (perfect for
   [tygo](https://github.com/gzuidhof/tygo)-generated code)
 - **Native Integration**: Works directly with VSCode's built-in "Find All References" (`Shift+F12`) and "Find All Implementations" (`Ctrl+F12`) features
 - **Smart Name Matching**: Automatically handles case conversion (PascalCase ↔ camelCase)
-- **Accessibility Matching**: Optional strict mode to match exported/unexported symbols
 
 ## Rules
 
 - **Same-Directory Scope**: Go and TypeScript symbols must be declared in the same directory
-- **Top-Level Functions Only**: Only match top-level functions, excludes struct/class methods and nested functions
-- **Exported Types Only**: Only match exported Go structs (capitalized) and exported TypeScript interfaces
+- **Top-Level Functions Only**: Only match top-level functions, excludes nested functions
+- **Exported Types Only**: Only match exported Go structs/interfaces (capitalized) and exported TypeScript interfaces
 
 ## Usage
 
@@ -171,13 +170,13 @@ Enable or disable the extension in the current workspace.
 
 ### `bilingo-vscode.strictAccessibility`
 
-**Type:** `boolean`\
+**Type:** `boolean`
 **Default:** `false`
 
-When enabled, only matches symbols with the same accessibility:
+If enabled, when matching functions, only match the ones with the same accessibility:
 
-- Go **capitalized** symbols ↔ TypeScript **export**ed symbols
-- Go **non-capitalized** functions ↔ TypeScript **non-exported** functions (Note: structs and interfaces are always exported)
+- Go **capitalized** functions ↔ TypeScript **export**ed functions
+- Go **non-capitalized** functions ↔ TypeScript **non-exported** functions
 
 ```json
 {
@@ -196,12 +195,6 @@ When enabled, only matches symbols with the same accessibility:
 
 - `func GetArticle` (Go) ✗ `function getArticle` (TS)
 - `func getArticle` (Go) ✗ `export function getArticle` (TS)
-
-**Types - Always match exported only:**
-
-- `type Article struct` (Go) ↔ `export interface Article` (TS) ✅
-- `type article struct` (Go - not exported) ✗ Any TypeScript interface
-- Any Go struct ✗ `interface Article` (TS - not exported)
 
 ## Requirements
 
