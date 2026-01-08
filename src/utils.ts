@@ -359,7 +359,7 @@ export async function findMatchingSymbolsInGoFiles(
     symbolNames: string[],
     isSourceExported: boolean,
     symbolKind: vscode.SymbolKind,
-    strictAccessibility: boolean,
+    strictExport: boolean,
 ): Promise<SymbolCandidate[]> {
     // Route to specialized functions based on symbol kind
     if (symbolKind === vscode.SymbolKind.Function) {
@@ -368,7 +368,7 @@ export async function findMatchingSymbolsInGoFiles(
             goFiles,
             symbolNames,
             isSourceExported,
-            strictAccessibility,
+            strictExport,
         )
     } else if (symbolKind === vscode.SymbolKind.Interface) {
         // TS interface -> Go struct
@@ -390,7 +390,7 @@ async function findGoFunctionForTsFunctionViaMatching(
     goFiles: vscode.Uri[],
     symbolNames: string[],
     isSourceExported: boolean,
-    strictAccessibility: boolean,
+    strictExport: boolean,
 ): Promise<SymbolCandidate[]> {
     const candidates: SymbolCandidate[] = []
 
@@ -414,8 +414,8 @@ async function findGoFunctionForTsFunctionViaMatching(
                 ) {
                     const isGoExported = isGoSymbolExported(symbol.name)
 
-                    // Check accessibility if strict mode is enabled
-                    if (strictAccessibility && isSourceExported !== isGoExported) {
+                    // Check export status if strict mode is enabled
+                    if (strictExport && (!isSourceExported || !isGoExported)) {
                         continue
                     }
 
@@ -501,7 +501,7 @@ export async function findMatchingSymbolsInTsFiles(
     symbolNames: string[],
     isSourceExported: boolean,
     symbolKind: vscode.SymbolKind,
-    strictAccessibility: boolean,
+    strictExport: boolean,
 ): Promise<SymbolCandidate[]> {
     // Route to specialized functions based on symbol kind
     if (symbolKind === vscode.SymbolKind.Function) {
@@ -510,7 +510,7 @@ export async function findMatchingSymbolsInTsFiles(
             tsFiles,
             symbolNames,
             isSourceExported,
-            strictAccessibility,
+            strictExport,
         )
     } else if (symbolKind === vscode.SymbolKind.Struct) {
         // Go struct -> TS interface
@@ -532,7 +532,7 @@ async function findTsFunctionForGoFunctionViaMatching(
     tsFiles: vscode.Uri[],
     symbolNames: string[],
     isSourceExported: boolean,
-    strictAccessibility: boolean,
+    strictExport: boolean,
 ): Promise<SymbolCandidate[]> {
     // Open all TypeScript files to ensure language server is ready
     await Promise.all(
@@ -566,8 +566,8 @@ async function findTsFunctionForGoFunctionViaMatching(
                     const line = document.lineAt(symbol.range.start.line).text
                     const isTsExported = /^\s*export\s+/.test(line)
 
-                    // Check accessibility if strict mode is enabled
-                    if (strictAccessibility && isSourceExported !== isTsExported) {
+                    // Check export status if strict mode is enabled
+                    if (strictExport && (!isSourceExported || !isTsExported)) {
                         continue
                     }
 

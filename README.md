@@ -168,33 +168,41 @@ Enable or disable the extension in the current workspace.
 }
 ```
 
-### `bilingo-vscode.strictAccessibility`
+### `bilingo-vscode.strictExport`
 
 **Type:** `boolean`
 **Default:** `false`
 
-If enabled, when matching functions, only match the ones with the same accessibility:
+If enabled, when matching functions, only match exported functions:
 
 - Go **capitalized** functions ↔ TypeScript **export**ed functions
-- Go **non-capitalized** functions ↔ TypeScript **non-exported** functions
+
+When disabled, both exported and non-exported functions are matched.
 
 ```json
 {
-    "bilingo-vscode.strictAccessibility": true
+    "bilingo-vscode.strictExport": true
 }
 ```
 
-#### Example with Strict Accessibility
+#### Example with Strict Export
 
-**Functions - Matches:**
+**With `strictExport: false` (default) - Matches:**
 
 - `func GetArticle` (Go) ↔ `export function getArticle` (TS) ✅
+- `func GetArticle` (Go) ↔ `function getArticle` (TS) ✅
+- `func getArticle` (Go) ↔ `export function getArticle` (TS) ✅
 - `func getArticle` (Go) ↔ `function getArticle` (TS) ✅
 
-**Functions - Does NOT match:**
+**With `strictExport: true` - Matches:**
 
-- `func GetArticle` (Go) ✗ `function getArticle` (TS)
-- `func getArticle` (Go) ✗ `export function getArticle` (TS)
+- `func GetArticle` (Go) ↔ `export function getArticle` (TS) ✅
+
+**With `strictExport: true` - Does NOT match:**
+
+- `func GetArticle` (Go) ✗ `function getArticle` (TS) (TS not exported)
+- `func getArticle` (Go) ✗ `export function getArticle` (TS) (Go not exported)
+- `func getArticle` (Go) ✗ `function getArticle` (TS) (both not exported)
 
 ## Requirements
 

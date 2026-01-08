@@ -1,5 +1,5 @@
 import * as vscode from "vscode"
-import { isStrictAccessibilityEnabled } from "../config"
+import { isStrictExportEnabled } from "../config"
 import {
     capitalizeFirstLetter,
     findCorrespondingField,
@@ -587,7 +587,7 @@ async function findSymbolReferencesInGoFiles(
     isSourceExported: boolean,
     symbolKind: vscode.SymbolKind,
 ): Promise<vscode.Location[]> {
-    const strictAccessibility = isStrictAccessibilityEnabled()
+    const strictExport = isStrictExportEnabled()
 
     // Find matching symbols
     const candidates = await findMatchingSymbolsInGoFiles(
@@ -595,7 +595,7 @@ async function findSymbolReferencesInGoFiles(
         symbolNames,
         isSourceExported,
         symbolKind,
-        strictAccessibility,
+        strictExport,
     )
 
     // If no candidates, return empty
@@ -640,7 +640,7 @@ async function findSymbolReferencesInTsFiles(
     isSourceExported: boolean,
     symbolKind: vscode.SymbolKind,
 ): Promise<vscode.Location[]> {
-    const strictAccessibility = isStrictAccessibilityEnabled()
+    const strictExport = isStrictExportEnabled()
 
     // Find matching symbols
     const candidates = await findMatchingSymbolsInTsFiles(
@@ -648,7 +648,7 @@ async function findSymbolReferencesInTsFiles(
         symbolNames,
         isSourceExported,
         symbolKind,
-        strictAccessibility,
+        strictExport,
     )
 
     // If no candidates, return empty

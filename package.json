@@ -43,9 +43,9 @@
                     "description": "Enable Bilingo VSCode Extension in the current workspace.",
                     "default": true
                 },
-                "bilingo-vscode.strictAccessibility": {
+                "bilingo-vscode.strictExport": {
                     "type": "boolean",
-                    "description": "Strict accessibility matching: Go exported functions (capitalized) only match TypeScript exported functions, and Go unexported functions (lowercase) only match TypeScript non-exported functions.",
+                    "description": "Strict export matching: Only match exported functions (Go capitalized functions and TypeScript exported functions). When disabled, both exported and non-exported functions are matched.",
                     "default": false
                 }
             }

@@ -10,12 +10,13 @@ export function isEnabledInWorkspace(): boolean {
 }
 
 /**
- * Check if strict accessibility matching is enabled.
+ * Check if strict export matching is enabled.
+ * When enabled, only exported functions are matched (Go capitalized + TS exported).
  */
-export function isStrictAccessibilityEnabled(): boolean {
+export function isStrictExportEnabled(): boolean {
     const config = vscode.workspace.getConfiguration("bilingo-vscode")
-    const strictAccessibility = config.get<boolean>("strictAccessibility", false)
-    return strictAccessibility
+    const strictExport = config.get<boolean>("strictExport", false)
+    return strictExport
 }
 
 /**
